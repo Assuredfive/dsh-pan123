@@ -11,7 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20.3', '22', '24']
+        # 20.x = 维护中的 20 线最新版；精确到 20.3 的旧补丁版本其测试运行器会挂住（与本包无关）
+        node: ['20.x', '22', '24']
     name: node ${{ matrix.node }}
     steps:
       # v4 已在本仓库的 runner 上验证可用（v5+ 只是消除 Node 20 弃用警告，非必需）
