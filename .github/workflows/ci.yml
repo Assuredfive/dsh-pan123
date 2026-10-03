@@ -14,9 +14,11 @@ jobs:
         node: ['20.3', '22', '24']
     name: node ${{ matrix.node }}
     steps:
+      # v4 已在本仓库的 runner 上验证可用（v5+ 只是消除 Node 20 弃用警告，非必需）
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
       # 零依赖：不需要 install，直接跑 node:test
-      - run: node --test
+      # timeout 兜底：万一有测试挂住，让 job 明确失败而不是干等 6 小时
+      - run: timeout 300 node --test

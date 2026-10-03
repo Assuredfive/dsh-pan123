@@ -46,6 +46,9 @@ before(async () => {
 });
 
 after(async () => {
+  // 同上：keep-alive 连接不清掉会让 node --test 在 Node 20 上挂住
+  web.closeAllConnections?.();
+  web.closeIdleConnections?.();
   await new Promise((resolve) => web.close(resolve));
   await dav.close();
   rmSync(dir, { recursive: true, force: true });

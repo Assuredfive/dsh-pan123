@@ -215,6 +215,10 @@ export async function startFakeWebdav(options = {}) {
       return node && !node.dir ? node.data.toString('utf8') : null;
     },
     async close() {
+      // fetch 用的是 keep-alive 连接：只调 close() 会一直等这些空闲连接，
+      // 在 Node 20 上会让 `node --test` 永久挂住。先主动掐掉所有连接。
+      server.closeAllConnections?.();
+      server.closeIdleConnections?.();
       await new Promise((resolve) => server.close(resolve));
     },
   };
