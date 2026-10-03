@@ -82,6 +82,38 @@
       .empty { padding: 26px; text-align: center; color: var(--muted); }
       .drop { border: 1.5px dashed var(--border); border-radius: var(--radius); padding: 16px; text-align: center; color: var(--muted); margin-top: 10px; }
       .drop.hot { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+      .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+      .toolbar input.q {
+        flex: 1 1 200px; min-width: 150px; font: inherit; padding: 5px 9px;
+        border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      }
+      .toolbar .chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+      .toolbar .muted { font-size: 12px; color: var(--muted); white-space: nowrap; }
+      #sortgroup { display: flex; gap: 4px; flex-wrap: wrap; }
+      button.sort { padding: 4px 9px; font-size: 12px; }
+      button.sort .arrow { margin-left: 4px; opacity: 0.55; }
+      button.sort.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+      button.sort.on .arrow { opacity: 1; }
+      .selbar {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+        background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius); padding: 7px 10px;
+      }
+      .selbar #sel-count { font-size: 12px; font-weight: 600; }
+      .selbar .spacer { flex: 1; }
+      button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+      button.danger:hover { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+      table.list th.pick, table.list td.pick { width: 30px; padding-right: 0; text-align: center; }
+      table.list tbody tr.sel { background: var(--accent-soft); }
+      .ctx {
+        position: fixed; z-index: 40; min-width: 178px; padding: 4px;
+        display: flex; flex-direction: column;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+        box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18);
+      }
+      .ctx button { text-align: left; border-color: transparent; background: transparent; padding: 6px 9px; border-radius: 7px; }
+      .ctx button:hover { background: var(--accent-soft); border-color: transparent; }
+      .ctx button.danger { color: var(--danger); }
+      .selbar[hidden], .ctx[hidden] { display: none; }
       .status { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px; white-space: pre-wrap; }
       .status.err { color: var(--danger); }
       .status.ok { color: var(--ok); }
@@ -148,10 +180,32 @@
 
       <section id="files-view">
         <div class="crumbs" id="crumbs"></div>
+        <div class="toolbar">
+          <input id="q" class="q" placeholder="在当前目录中搜索名称…（按 / 聚焦）" spellcheck="false" aria-label="搜索当前目录" />
+          <label class="chk"><input type="checkbox" id="only-dirs" /> 仅文件夹</label>
+          <span class="spacer"></span>
+          <span class="muted" id="count"></span>
+          <span id="sortgroup">
+            <button class="sort ghost" data-key="name" title="按名称排序">名称<span class="arrow">↑</span></button>
+            <button class="sort ghost" data-key="mtime" title="按修改时间排序">修改时间<span class="arrow"></span></button>
+            <button class="sort ghost" data-key="size" title="按大小排序">大小<span class="arrow"></span></button>
+            <button class="sort ghost" data-key="type" title="按扩展名排序">类型<span class="arrow"></span></button>
+          </span>
+        </div>
+        <div class="selbar" id="selbar" hidden>
+          <span id="sel-count"></span>
+          <span class="spacer"></span>
+          <button id="sel-all" class="ghost">全选</button>
+          <button id="sel-none" class="ghost">清除</button>
+          <button id="sel-dl">批量下载</button>
+          <button id="sel-mv">批量移动</button>
+          <button id="sel-rm" class="danger">批量删除</button>
+        </div>
         <div class="card">
           <table class="list">
             <thead>
               <tr>
+                <th class="pick"><input type="checkbox" id="pick-all" aria-label="全选当前列表" /></th>
                 <th>名称</th>
                 <th class="num">大小</th>
                 <th class="num">修改时间</th>
@@ -237,6 +291,8 @@
       <input id="picker" type="file" multiple hidden />
     </div>
 
+    <div class="ctx" id="ctx" hidden role="menu"></div>
+
     <dialog id="prompt-dialog">
       <h2 id="prompt-title"></h2>
       <div id="prompt-fields"></div>
@@ -264,7 +320,15 @@
     <script>
       const TOKEN = '__PAN123_TOKEN__';
       const VIEW = new URLSearchParams(location.search).get('view') === 'settings' ? 'settings' : 'files';
-      const state = { path: '/', entries: [] };
+      const state = {
+        path: '/',
+        entries: [],
+        filter: '',
+        foldersOnly: false,
+        sortKey: 'name',
+        sortDir: 'asc',
+        selected: new Set(),
+      };
       const $ = (id) => document.getElementById(id);
 
       async function api(path, options = {}) {
@@ -442,6 +506,56 @@
         return out.join('\n');
       }
 
+      /* ============================ 列表：搜索 / 排序 / 筛选 ============================ */
+      /* 纯函数（不碰 DOM），test/list.test.js 会把这一段抽出来单独测。 */
+      const SORT_LABELS = { name: '名称', mtime: '修改时间', size: '大小', type: '类型' };
+      const DEFAULT_DIR = { name: 'asc', type: 'asc', mtime: 'desc', size: 'desc' };
+
+      const defaultDirFor = (key) => DEFAULT_DIR[key] || 'asc';
+
+      const entryExt = (name) => {
+        const text = String(name || '');
+        const dot = text.lastIndexOf('.');
+        return dot > 0 ? text.slice(dot + 1).toLowerCase() : '';
+      };
+
+      const entryTime = (entry) => {
+        const raw = entry && entry.mtime ? new Date(entry.mtime).getTime() : NaN;
+        return Number.isFinite(raw) ? raw : 0;
+      };
+
+      const entrySize = (entry) => (Number.isInteger(entry && entry.size) ? entry.size : 0);
+
+      const nameCompare = (a, b) =>
+        String(a).localeCompare(String(b), 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+
+      /** 目录永远排在最前，其余按 sortKey / sortDir 比较，同键值时用名称升序做稳定兜底。 */
+      function compareEntries(a, b, sortKey, sortDir) {
+        if (Boolean(a.isDir) !== Boolean(b.isDir)) return a.isDir ? -1 : 1;
+        let diff;
+        if (sortKey === 'mtime') diff = entryTime(a) - entryTime(b);
+        else if (sortKey === 'size') diff = entrySize(a) - entrySize(b);
+        else if (sortKey === 'type') diff = entryExt(a.name).localeCompare(entryExt(b.name), 'en');
+        else diff = nameCompare(a.name, b.name);
+        if (diff !== 0) return sortDir === 'desc' ? -diff : diff;
+        return nameCompare(a.name, b.name);
+      }
+
+      /** 过滤（名称子串 + 仅文件夹）后排序，返回新数组，不修改入参。 */
+      function visibleEntries(entries, view = {}) {
+        const filter = String(view.filter || '').trim().toLowerCase();
+        const foldersOnly = view.foldersOnly === true;
+        const sortKey = SORT_LABELS[view.sortKey] ? view.sortKey : 'name';
+        const sortDir = view.sortDir === 'desc' ? 'desc' : 'asc';
+        return (Array.isArray(entries) ? entries : [])
+          .filter((entry) => {
+            if (!entry) return false;
+            if (foldersOnly && !entry.isDir) return false;
+            return filter === '' || String(entry.name).toLowerCase().includes(filter);
+          })
+          .sort((a, b) => compareEntries(a, b, sortKey, sortDir));
+      }
+
       /* ============================ 文件浏览器 ============================ */
       const isTextish = (name) =>
         /\.(txt|md|markdown|json|ya?ml|toml|ini|cfg|conf|csv|log|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|sh|ps1|bat|cmd|sql|env)$/i.test(
@@ -498,12 +612,87 @@
         return b;
       }
 
+      function selectedEntries() {
+        return state.entries.filter((entry) => state.selected.has(entry.path));
+      }
+
+      function selectionInfo() {
+        const picked = selectedEntries();
+        const dirs = picked.filter((entry) => entry.isDir).length;
+        return { picked, dirs, files: picked.length - dirs, total: picked.length };
+      }
+
+      function currentVisible() {
+        return visibleEntries(state.entries, state);
+      }
+
+      function updateSelbar() {
+        const info = selectionInfo();
+        $('selbar').hidden = info.total === 0;
+        $('sel-count').textContent =
+          info.total === 0 ? '' : `已选 ${info.total} 项（${info.dirs} 个文件夹 / ${info.files} 个文件）`;
+        const visible = currentVisible();
+        const on = visible.filter((entry) => state.selected.has(entry.path)).length;
+        const pickAll = $('pick-all');
+        pickAll.checked = visible.length > 0 && on === visible.length;
+        pickAll.indeterminate = on > 0 && on < visible.length;
+      }
+
+      /** 只清掉已不存在的选中项：同一目录刷新时保留选择，换目录时调用方会整批清空。 */
+      function pruneSelection() {
+        const alive = new Set(state.entries.map((entry) => entry.path));
+        for (const path of [...state.selected]) if (!alive.has(path)) state.selected.delete(path);
+      }
+
+      function setSelected(path, on) {
+        if (on) state.selected.add(path);
+        else state.selected.delete(path);
+      }
+
+      function selectAllVisible(on) {
+        for (const entry of currentVisible()) setSelected(entry.path, on);
+      }
+
+      function updateSortButtons() {
+        for (const btn of document.querySelectorAll('#sortgroup button.sort')) {
+          const active = btn.dataset.key === state.sortKey;
+          btn.classList.toggle('on', active);
+          const arrow = btn.querySelector('.arrow');
+          if (arrow) arrow.textContent = active ? (state.sortDir === 'desc' ? '↓' : '↑') : '';
+        }
+      }
+
       function renderRows() {
         const tbody = $('rows');
+        const list = currentVisible();
         tbody.textContent = '';
-        $('empty').hidden = state.entries.length > 0;
-        for (const entry of state.entries) {
+        $('empty').hidden = list.length > 0;
+        $('empty').textContent =
+          state.entries.length === 0 ? '这里还没有内容' : '没有匹配的条目（试试清空搜索或取消「仅文件夹」）';
+        $('count').textContent =
+          state.filter.trim() === '' && !state.foldersOnly
+            ? `${state.entries.length} 项`
+            : `匹配 ${list.length} / ${state.entries.length} 项`;
+        updateSortButtons();
+
+        for (const entry of list) {
           const tr = document.createElement('tr');
+          const selected = state.selected.has(entry.path);
+          if (selected) tr.className = 'sel';
+
+          const pickCell = document.createElement('td');
+          pickCell.className = 'pick';
+          const box = document.createElement('input');
+          box.type = 'checkbox';
+          box.checked = selected;
+          box.setAttribute('aria-label', `选择 ${entry.name}`);
+          box.onclick = (event) => {
+            event.stopPropagation();
+            setSelected(entry.path, box.checked);
+            renderRows();
+          };
+          pickCell.append(box);
+          tr.append(pickCell);
 
           const nameCell = document.createElement('td');
           nameCell.className = 'name';
@@ -535,8 +724,10 @@
           actCell.append(button('删除', () => remove(entry)));
           tr.append(actCell);
 
+          tr.oncontextmenu = (event) => showContextMenu(event, entry);
           tbody.append(tr);
         }
+        updateSelbar();
       }
 
       function downloadUrl(entry) {
@@ -544,11 +735,14 @@
       }
 
       async function open(path) {
-        state.path = path || '/';
+        const next = path || '/';
+        if (next !== state.path) state.selected.clear();
+        state.path = next;
         setStatus('加载中…');
         try {
           const data = await api('list?path=' + encodeURIComponent(state.path));
-          state.entries = data.entries;
+          state.entries = Array.isArray(data.entries) ? data.entries : [];
+          pruneSelection();
           renderCrumbs();
           renderRows();
           setConn('ok', '已连接');
@@ -566,6 +760,173 @@
         document.body.append(a);
         a.click();
         a.remove();
+      }
+
+      /* ============================ 右键菜单 / 批量操作 ============================ */
+      async function copyText(text) {
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            setStatus(`已复制：${text}`, 'ok');
+            return;
+          }
+        } catch { /* 回退到 execCommand */ }
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.append(area);
+        area.select();
+        try {
+          document.execCommand('copy');
+          setStatus(`已复制：${text}`, 'ok');
+        } catch {
+          setStatus(`复制失败，请手动复制：${text}`, 'err');
+        }
+        area.remove();
+      }
+
+      function closeContextMenu() {
+        const el = $('ctx');
+        el.hidden = true;
+        el.textContent = '';
+      }
+
+      function contextItem(label, onclick, danger) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.textContent = label;
+        if (danger) item.className = 'danger';
+        item.onclick = () => {
+          closeContextMenu();
+          onclick();
+        };
+        return item;
+      }
+
+      function showContextMenu(event, entry) {
+        event.preventDefault();
+        if (!state.selected.has(entry.path)) {
+          state.selected.clear();
+          state.selected.add(entry.path);
+          renderRows();
+        } else {
+          updateSelbar();
+        }
+        const el = $('ctx');
+        el.textContent = '';
+        if (entry.isDir) el.append(contextItem('打开', () => open(entry.path)));
+        else {
+          el.append(contextItem('下载', () => download(entry)));
+          if (isTextish(entry.name)) el.append(contextItem('预览', () => preview(entry)));
+        }
+        el.append(contextItem('复制下载链接', () => copyText(location.origin + downloadUrl(entry))));
+        el.append(contextItem('复制路径', () => copyText(entry.path)));
+        el.append(contextItem('重命名 / 移动', () => renameOrMove(entry)));
+        const count = state.selected.size;
+        if (count > 1) el.append(contextItem(`删除选中的 ${count} 项…`, () => removeSelected(), true));
+        else el.append(contextItem('删除', () => remove(entry), true));
+
+        el.hidden = false;
+        const rect = el.getBoundingClientRect();
+        el.style.left = `${Math.max(4, Math.min(event.clientX, window.innerWidth - rect.width - 8))}px`;
+        el.style.top = `${Math.max(4, Math.min(event.clientY, window.innerHeight - rect.height - 8))}px`;
+      }
+
+      async function removeSelected() {
+        const info = selectionInfo();
+        if (info.total === 0) return;
+        const values = await askDialog(`删除选中的 ${info.total} 项？`, [
+          {
+            note:
+              info.dirs > 0
+                ? `其中 ${info.dirs} 个是文件夹：123云盘会递归删除整棵子树，没有回收站，无法撤销。`
+                : '此操作不可撤销，没有回收站。',
+          },
+          { label: '输入 DELETE 确认', value: '', placeholder: 'DELETE' },
+        ]);
+        if (!values || values[0] !== 'DELETE') return;
+        let done = 0;
+        const failed = [];
+        for (const entry of info.picked) {
+          setStatus(`删除中… ${done + failed.length + 1}/${info.total} · ${entry.path}`);
+          try {
+            await api('delete', { method: 'POST', body: JSON.stringify({ path: entry.path, recursive: entry.isDir }) });
+            done += 1;
+          } catch (err) {
+            failed.push(`${entry.path}：${err.message}`);
+          }
+        }
+        state.selected.clear();
+        await open(state.path);
+        setStatus(
+          failed.length === 0 ? `已删除 ${done} 项` : `已删除 ${done} 项，失败 ${failed.length} 项\n${failed.join('\n')}`,
+          failed.length === 0 ? 'ok' : 'err',
+        );
+      }
+
+      async function moveSelected() {
+        const info = selectionInfo();
+        if (info.total === 0) return;
+        const values = await askDialog(`把选中的 ${info.total} 项移动到…`, [
+          { note: '目标目录不存在时会失败；把文件夹移动到它自己或它的子目录下会被自动跳过。' },
+          { label: '目标目录', value: parentOf(info.picked[0].path), placeholder: '/dsh' },
+        ]);
+        if (!values || !values[0]) return;
+        const dir = values[0].replace(/\/+$/, '') || '/';
+        let done = 0;
+        const failed = [];
+        const skipped = [];
+        for (const entry of info.picked) {
+          const to = (dir === '/' ? '' : dir) + '/' + entry.name;
+          const intoItself = entry.isDir && (dir === entry.path || dir.startsWith(entry.path + '/'));
+          if (to === entry.path || intoItself) {
+            skipped.push(entry.path);
+            continue;
+          }
+          setStatus(`移动中… ${done + failed.length + skipped.length + 1}/${info.total} · ${entry.path}`);
+          try {
+            await api('move', { method: 'POST', body: JSON.stringify({ from: entry.path, to }) });
+            done += 1;
+          } catch (err) {
+            failed.push(`${entry.path}：${err.message}`);
+          }
+        }
+        state.selected.clear();
+        await open(state.path);
+        const extra = [
+          skipped.length > 0 ? `跳过 ${skipped.length} 项（原地或移入自身）` : '',
+          failed.length > 0 ? `失败 ${failed.length} 项\n${failed.join('\n')}` : '',
+        ].filter(Boolean).join('\n');
+        setStatus(`已移动 ${done} 项到 ${dir}${extra ? '\n' + extra : ''}`, failed.length === 0 ? 'ok' : 'err');
+      }
+
+      async function downloadSelected() {
+        const info = selectionInfo();
+        const files = info.picked.filter((entry) => !entry.isDir);
+        if (files.length === 0) {
+          setStatus('选中的都是文件夹：暂不支持整目录打包下载，请进入目录后逐个下载。', 'err');
+          return;
+        }
+        if (files.length > 5) {
+          const ok = await askDialog(`依次下载 ${files.length} 个文件？`, [
+            {
+              note:
+                '浏览器可能拦截连续下载，请在地址栏允许本站「下载多个文件」。' +
+                (info.dirs > 0 ? `另有 ${info.dirs} 个文件夹会被跳过。` : ''),
+            },
+          ]);
+          if (!ok) return;
+        }
+        for (const [index, entry] of files.entries()) {
+          setStatus(`下载 ${index + 1}/${files.length} · ${entry.name}`);
+          download(entry);
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        setStatus(
+          `已触发 ${files.length} 个文件的下载${info.dirs > 0 ? `，跳过 ${info.dirs} 个文件夹` : ''}`,
+          'ok',
+        );
       }
 
       let previewState = { raw: '' };
@@ -606,6 +967,13 @@
           box.textContent = '';
           const inputs = [];
           for (const field of fields) {
+            if (field.note) {
+              const note = document.createElement('p');
+              note.className = 'hint';
+              note.textContent = field.note;
+              box.append(note);
+              continue;
+            }
             const label = document.createElement('label');
             label.textContent = field.label;
             const input = document.createElement('input');
@@ -756,6 +1124,63 @@
           uploadFiles(event.target.files);
           event.target.value = '';
         };
+
+        const search = $('q');
+        search.addEventListener('input', () => {
+          state.filter = search.value;
+          renderRows();
+        });
+        search.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            search.value = '';
+            state.filter = '';
+            renderRows();
+          }
+        });
+        $('only-dirs').addEventListener('change', (event) => {
+          state.foldersOnly = event.target.checked;
+          renderRows();
+        });
+        $('pick-all').addEventListener('change', (event) => {
+          selectAllVisible(event.target.checked);
+          renderRows();
+        });
+        for (const btn of document.querySelectorAll('#sortgroup button.sort')) {
+          btn.onclick = () => {
+            const key = btn.dataset.key;
+            if (state.sortKey === key) {
+              state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+              state.sortKey = key;
+              state.sortDir = defaultDirFor(key);
+            }
+            renderRows();
+          };
+        }
+        $('sel-all').onclick = () => {
+          selectAllVisible(true);
+          renderRows();
+        };
+        $('sel-none').onclick = () => {
+          state.selected.clear();
+          renderRows();
+        };
+        $('sel-dl').onclick = downloadSelected;
+        $('sel-mv').onclick = moveSelected;
+        $('sel-rm').onclick = removeSelected;
+
+        document.addEventListener('click', closeContextMenu);
+        document.addEventListener('scroll', closeContextMenu, true);
+        window.addEventListener('resize', closeContextMenu);
+        window.addEventListener('blur', closeContextMenu);
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') closeContextMenu();
+          const tag = (document.activeElement && document.activeElement.tagName) || '';
+          if (event.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+            event.preventDefault();
+            search.focus();
+          }
+        });
 
         const drop = $('drop');
         for (const type of ['dragenter', 'dragover']) {

@@ -10,7 +10,7 @@ import { test } from 'node:test';
 function loadRenderer() {
   const html = readFileSync(new URL('../lib/ui.html', import.meta.url), 'utf8');
   const start = html.indexOf('const escapeHtml =');
-  const end = html.indexOf('/* ============================ 文件浏览器');
+  const end = html.indexOf('/* ============================ 列表：搜索 / 排序 / 筛选');
   assert.ok(start > 0 && end > start, 'ui.html 里应能找到渲染器源码段');
   const snippet = html.slice(start, end);
   const sandbox = {};
