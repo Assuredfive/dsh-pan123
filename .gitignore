@@ -1,0 +1,14 @@
+# 依赖（本包没有运行时依赖，但 profile 安装时会生成）
+node_modules/
+
+# 打包产物
+*.tgz
+
+# 插件自诊断文件（DSH_PAN123_DEBUG=1 时才会生成）
+.apply-report.json
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+*.log

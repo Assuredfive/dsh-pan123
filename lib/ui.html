@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>123云盘 · dsh-pan123</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --border: #e3e6ea;
+        --text: #1c1f23;
+        --muted: #6b7280;
+        --accent: #2563eb;
+        --accent-soft: #e8efff;
+        --danger: #d92d20;
+        --ok: #067647;
+        --code-bg: #f2f4f7;
+        --radius: 10px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16181c;
+          --panel: #1e2126;
+          --border: #2c3037;
+          --text: #e6e8eb;
+          --muted: #9aa2ad;
+          --accent: #6d9bff;
+          --accent-soft: #22304d;
+          --danger: #ff7b72;
+          --ok: #3fb950;
+          --code-bg: #14161a;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 14px 16px 40px; }
+      header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+      h1 { font-size: 15px; margin: 0; font-weight: 650; }
+      h2 { font-size: 13px; margin: 0 0 8px; font-weight: 650; }
+      .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+      .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+      .pill.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+      .spacer { flex: 1; }
+      button, .btn {
+        font: inherit; padding: 5px 11px; border-radius: 8px; border: 1px solid var(--border);
+        background: var(--panel); color: var(--text); cursor: pointer; text-decoration: none; display: inline-block;
+      }
+      button:hover, .btn:hover { border-color: var(--accent); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.primary:hover { filter: brightness(1.08); }
+      button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+      button.ghost:hover { color: var(--text); background: var(--accent-soft); }
+      button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .crumbs {
+        display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+        background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+        padding: 7px 10px; margin-bottom: 10px;
+      }
+      .crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; }
+      .crumbs a:hover { text-decoration: underline; }
+      .crumbs .sep { color: var(--muted); }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+      .card.pad { padding: 14px; margin-bottom: 12px; }
+      table.list { width: 100%; border-collapse: collapse; }
+      table.list th, table.list td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+      table.list th { font-size: 11px; color: var(--muted); font-weight: 600; background: color-mix(in srgb, var(--bg) 60%, var(--panel)); }
+      table.list tbody tr:last-child td { border-bottom: none; }
+      table.list tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+      td.name { cursor: pointer; }
+      td.name .ico { margin-right: 7px; opacity: 0.85; }
+      td.num, th.num { text-align: right; white-space: nowrap; color: var(--muted); }
+      td.act { text-align: right; white-space: nowrap; }
+      td.act button { padding: 2px 8px; font-size: 12px; }
+      .empty { padding: 26px; text-align: center; color: var(--muted); }
+      .drop { border: 1.5px dashed var(--border); border-radius: var(--radius); padding: 16px; text-align: center; color: var(--muted); margin-top: 10px; }
+      .drop.hot { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+      .status { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px; white-space: pre-wrap; }
+      .status.err { color: var(--danger); }
+      .status.ok { color: var(--ok); }
+      dialog { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); padding: 16px; min-width: 360px; max-width: 94vw; }
+      dialog.wide { width: 900px; }
+      dialog::backdrop { background: rgba(0, 0, 0, 0.42); }
+      dialog label { display: block; font-size: 12px; color: var(--muted); margin: 9px 0 4px; }
+      dialog input { width: 100%; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+      dialog .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+      .progress { height: 4px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 8px; display: none; }
+      .progress > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+      .hint { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+      .hint code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; }
+      .field { margin-bottom: 10px; }
+      .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+      .field input {
+        width: 100%; max-width: 460px; font: inherit; padding: 6px 9px;
+        border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+      dl.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 12px; }
+      dl.kv dt { color: var(--muted); }
+      dl.kv dd { margin: 0; word-break: break-all; }
+      .md { max-height: 62vh; overflow: auto; font-size: 13.5px; line-height: 1.7; padding-right: 4px; }
+      .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 1.1em 0 0.5em; line-height: 1.35; }
+      .md h1 { font-size: 1.55em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+      .md h2 { font-size: 1.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+      .md h3 { font-size: 1.15em; }
+      .md p { margin: 0.6em 0; }
+      .md ul, .md ol { margin: 0.5em 0; padding-left: 1.6em; }
+      .md li { margin: 0.2em 0; }
+      .md blockquote { margin: 0.6em 0; padding: 0.2em 0.9em; border-left: 3px solid var(--border); color: var(--muted); }
+      .md hr { border: none; border-top: 1px solid var(--border); margin: 1.1em 0; }
+      .md code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+      .md pre.md-code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 0.7em 0; }
+      .md pre.md-code code { background: none; padding: 0; font-size: 12.5px; line-height: 1.6; }
+      .md table.md-table { border-collapse: collapse; margin: 0.7em 0; font-size: 12.5px; }
+      .md table.md-table th, .md table.md-table td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; }
+      .md table.md-table th { background: color-mix(in srgb, var(--bg) 60%, var(--panel)); }
+      .md a { color: var(--accent); }
+      .md .md-img { color: var(--muted); background: var(--code-bg); padding: 1px 6px; border-radius: 5px; }
+      pre.raw { margin: 0; max-height: 62vh; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .viewbar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>123云盘</h1>
+        <span id="conn" class="pill">连接中…</span>
+        <span id="who" class="pill"></span>
+        <span class="spacer"></span>
+        <span id="files-tools" style="display: flex; gap: 8px; flex-wrap: wrap">
+          <button id="btn-up" class="ghost" title="上一级">↑ 上一级</button>
+          <button id="btn-refresh" class="ghost">刷新</button>
+          <button id="btn-mkdir">新建文件夹</button>
+          <button id="btn-upload" class="primary">上传文件</button>
+          <a class="btn ghost" href="/pan123?view=settings">设置</a>
+        </span>
+        <span id="settings-tools" style="display: none; gap: 8px">
+          <a class="btn" href="/pan123">文件浏览器</a>
+        </span>
+      </header>
+
+      <section id="files-view">
+        <div class="crumbs" id="crumbs"></div>
+        <div class="card">
+          <table class="list">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th class="num">大小</th>
+                <th class="num">修改时间</th>
+                <th class="act">操作</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+          <div id="empty" class="empty" hidden>这里还没有内容</div>
+        </div>
+        <div id="drop" class="drop">把文件拖到这里即可上传到当前目录</div>
+        <div class="progress" id="prog"><i></i></div>
+      </section>
+
+      <section id="settings-view" hidden>
+        <div class="card pad">
+          <h2>连接状态</h2>
+          <div id="s-status" class="status" style="margin-top: 0"></div>
+          <dl class="kv" id="s-info" style="margin-top: 10px"></dl>
+          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
+            <button id="s-test" class="primary">测试连接</button>
+            <a class="btn" href="/pan123">打开文件浏览器</a>
+          </div>
+        </div>
+
+        <div class="card pad">
+          <h2>凭据（初始化）</h2>
+          <p class="hint">
+            123云盘 →「工具中心 → 第三方挂载」新建应用（授权目录「我的文件」、读写权限），
+            然后把手机号与应用密码填在这里。凭据写入本机 <code id="s-credpath">~/.config/123pan/webdav.env</code>，
+            <b>不会</b>写进插件配置，也不会进任何会同步的位置。
+          </p>
+          <div class="field">
+            <label>WebDAV 地址</label>
+            <input id="s-url" placeholder="https://webdav.123pan.cn/webdav" spellcheck="false" />
+          </div>
+          <div class="grid">
+            <div class="field">
+              <label>账号（手机号）</label>
+              <input id="s-user" placeholder="13800000000" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label>应用密码</label>
+              <input id="s-password" type="password" placeholder="留空表示不修改已保存的密码" spellcheck="false" />
+            </div>
+          </div>
+          <div id="s-warn" class="status err" hidden></div>
+        </div>
+
+        <div class="card pad">
+          <h2>偏好</h2>
+          <div class="grid">
+            <div class="field">
+              <label>默认上传目录（pan123_put 省略远端目录时）</label>
+              <input id="s-uploaddir" placeholder="例如 dsh；留空 = 根目录" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label>列目录最多返回条数</label>
+              <input id="s-maxlist" type="number" min="1" placeholder="1000" />
+            </div>
+            <div class="field">
+              <label>pan123_read 默认上限（字节）</label>
+              <input id="s-readmax" type="number" min="1" placeholder="262144" />
+            </div>
+            <div class="field">
+              <label>请求超时（毫秒）</label>
+              <input id="s-timeout" type="number" min="1" placeholder="120000" />
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 6px">
+            <button id="s-save" class="primary">保存</button>
+            <button id="s-reload" class="ghost">重新载入</button>
+          </div>
+          <p class="hint" style="margin-top: 10px">
+            保存后立即生效（工具与界面读同一份运行期配置），不需要重启 DSH。
+            有效凭据优先级：<b>插件 config &gt; 环境变量 &gt; 本页保存的 webdav.env</b>；
+            如果本机设了 <code>WEBDAV_*</code> 环境变量，上面会提示它盖住了本页的值。
+          </p>
+        </div>
+      </section>
+
+      <div class="status" id="status"></div>
+      <input id="picker" type="file" multiple hidden />
+    </div>
+
+    <dialog id="prompt-dialog">
+      <h2 id="prompt-title"></h2>
+      <div id="prompt-fields"></div>
+      <div class="row">
+        <button id="prompt-cancel" class="ghost">取消</button>
+        <button id="prompt-ok" class="primary">确定</button>
+      </div>
+    </dialog>
+
+    <dialog id="view-dialog" class="wide">
+      <h2 id="view-title"></h2>
+      <div class="viewbar">
+        <button id="view-rendered" class="on">渲染</button>
+        <button id="view-raw">原文</button>
+        <span class="spacer"></span>
+        <a class="btn ghost" id="view-download" target="_blank" rel="noopener">下载</a>
+      </div>
+      <div id="view-body" class="md"></div>
+      <pre id="view-raw-body" class="raw" hidden></pre>
+      <div class="row">
+        <button id="view-close" class="ghost">关闭</button>
+      </div>
+    </dialog>
+
+    <script>
+      const TOKEN = '__PAN123_TOKEN__';
+      const VIEW = new URLSearchParams(location.search).get('view') === 'settings' ? 'settings' : 'files';
+      const state = { path: '/', entries: [] };
+      const $ = (id) => document.getElementById(id);
+
+      async function api(path, options = {}) {
+        const res = await fetch('/pan123/api/' + path, {
+          ...options,
+          headers: {
+            'X-Pan123-Token': TOKEN,
+            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+            ...(options.headers || {}),
+          },
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+        if (!res.ok) {
+          const err = (data && data.error) || {};
+          throw new Error([err.message || `HTTP ${res.status}`, err.hint].filter(Boolean).join('\n'));
+        }
+        return data;
+      }
+
+      function setStatus(message, kind) {
+        const el = $('status');
+        el.textContent = message || '';
+        el.className = 'status' + (kind ? ' ' + kind : '');
+      }
+
+      function setConn(kind, text) {
+        $('conn').className = 'pill' + (kind ? ' ' + kind : '');
+        $('conn').textContent = text;
+      }
+
+      /* ============ 轻量 Markdown 渲染（零依赖：标题/列表/表格/代码块/引用/分隔线/行内样式） ============ */
+      const escapeHtml = (s) =>
+        String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+      function renderInline(text) {
+        const codes = [];
+        let out = String(text).replace(/`([^`]+)`/g, (_m, c) => {
+          codes.push(c);
+          return `\u0000${codes.length - 1}\u0000`;
+        });
+        out = escapeHtml(out);
+        out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, src) =>
+          `<span class="md-img" title="${escapeHtml(src)}">🖼 ${escapeHtml(alt || src)}</span>`);
+        out = out.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, href) =>
+          `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+        out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+        out = out.replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+        out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+        out = out.replace(/\u0000(\d+)\u0000/g, (_m, i) => `<code>${escapeHtml(codes[Number(i)])}</code>`);
+        return out;
+      }
+
+      function renderMarkdown(source) {
+        const lines = String(source).replace(/\r\n?/g, '\n').split('\n');
+        const out = [];
+        const stack = [];
+        let para = [];
+
+        const closeLists = (indent) => {
+          while (stack.length > 0 && stack[stack.length - 1].indent > indent) out.push(`</${stack.pop().tag}>`);
+        };
+        const flushPara = () => {
+          if (para.length > 0) {
+            out.push(`<p>${para.map(renderInline).join('<br />')}</p>`);
+            para = [];
+          }
+        };
+        const parseRow = (row) => row.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((cell) => cell.trim());
+
+        for (let i = 0; i < lines.length; i += 1) {
+          const raw = lines[i];
+          const line = raw.replace(/\s+$/, '');
+
+          const fence = /^\s*(```|~~~)\s*([\w+#.-]*)\s*$/.exec(line);
+          if (fence) {
+            flushPara();
+            closeLists(-1);
+            const marker = fence[1];
+            const lang = fence[2];
+            const body = [];
+            i += 1;
+            while (i < lines.length && !new RegExp('^\\s*' + marker).test(lines[i])) {
+              body.push(lines[i]);
+              i += 1;
+            }
+            out.push(
+              `<pre class="md-code"${lang ? ` data-lang="${escapeHtml(lang)}"` : ''}><code>${escapeHtml(body.join('\n'))}</code></pre>`,
+            );
+            continue;
+          }
+
+          if (/^\s*$/.test(line)) {
+            flushPara();
+            closeLists(-1);
+            continue;
+          }
+
+          if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+            flushPara();
+            closeLists(-1);
+            out.push('<hr />');
+            continue;
+          }
+
+          const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+          if (heading) {
+            flushPara();
+            closeLists(-1);
+            const level = heading[1].length;
+            out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+            continue;
+          }
+
+          const quote = /^\s*>\s?(.*)$/.exec(line);
+          if (quote) {
+            flushPara();
+            closeLists(-1);
+            out.push(`<blockquote>${renderInline(quote[1])}</blockquote>`);
+            continue;
+          }
+
+          if (line.includes('|') && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
+            flushPara();
+            closeLists(-1);
+            const header = parseRow(line);
+            const rows = [];
+            i += 2;
+            while (i < lines.length && lines[i].includes('|') && !/^\s*$/.test(lines[i])) {
+              rows.push(parseRow(lines[i]));
+              i += 1;
+            }
+            i -= 1;
+            out.push(
+              '<table class="md-table"><thead><tr>' +
+                header.map((cell) => `<th>${renderInline(cell)}</th>`).join('') +
+                '</tr></thead><tbody>' +
+                rows.map((row) => `<tr>${header.map((_c, ci) => `<td>${renderInline(row[ci] ?? '')}</td>`).join('')}</tr>`).join('') +
+                '</tbody></table>',
+            );
+            continue;
+          }
+
+          const item = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(raw);
+          if (item) {
+            flushPara();
+            const indent = item[1].replace(/\t/g, '  ').length;
+            const tag = /^\d/.test(item[2]) ? 'ol' : 'ul';
+            let content = item[3];
+            closeLists(indent);
+            const top = stack[stack.length - 1];
+            if (top && top.tag !== tag && indent <= top.indent) out.push(`</${stack.pop().tag}>`);
+            const newTop = stack[stack.length - 1];
+            if (!newTop || indent > newTop.indent || newTop.tag !== tag) {
+              out.push(`<${tag}>`);
+              stack.push({ tag, indent });
+            }
+            const task = /^\[([ xX])\]\s+(.*)$/.exec(content);
+            if (task) {
+              const checked = task[1].trim() !== '';
+              content = `<input type="checkbox" disabled${checked ? ' checked' : ''} /> ${renderInline(task[2])}`;
+            } else {
+              content = renderInline(content);
+            }
+            out.push(`<li>${content}</li>`);
+            continue;
+          }
+
+          para.push(line.trim());
+        }
+        flushPara();
+        closeLists(-1);
+        return out.join('\n');
+      }
+
+      /* ============================ 文件浏览器 ============================ */
+      const isTextish = (name) =>
+        /\.(txt|md|markdown|json|ya?ml|toml|ini|cfg|conf|csv|log|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|sh|ps1|bat|cmd|sql|env)$/i.test(
+          name,
+        );
+      const isMarkdown = (name) => /\.(md|markdown)$/i.test(name);
+
+      function joinPath(dir, name) {
+        const base = dir === '/' ? '' : dir.replace(/\/+$/, '');
+        return base + '/' + name;
+      }
+      function parentOf(p) {
+        const parts = p.split('/').filter(Boolean);
+        parts.pop();
+        return '/' + parts.join('/');
+      }
+      function fmtTime(value) {
+        if (!value) return '-';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return value.slice(0, 19);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+
+      function renderCrumbs() {
+        const el = $('crumbs');
+        el.textContent = '';
+        const root = document.createElement('a');
+        root.textContent = '我的文件';
+        root.onclick = () => open('/');
+        el.append(root);
+        let acc = '';
+        for (const part of state.path.split('/').filter(Boolean)) {
+          acc += '/' + part;
+          const target = acc;
+          const sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.textContent = '/';
+          const link = document.createElement('a');
+          link.textContent = part;
+          link.onclick = () => open(target);
+          el.append(sep, link);
+        }
+      }
+
+      function button(label, onclick) {
+        const b = document.createElement('button');
+        b.className = 'ghost';
+        b.textContent = label;
+        b.onclick = (event) => {
+          event.stopPropagation();
+          onclick();
+        };
+        return b;
+      }
+
+      function renderRows() {
+        const tbody = $('rows');
+        tbody.textContent = '';
+        $('empty').hidden = state.entries.length > 0;
+        for (const entry of state.entries) {
+          const tr = document.createElement('tr');
+
+          const nameCell = document.createElement('td');
+          nameCell.className = 'name';
+          nameCell.title = entry.path;
+          const ico = document.createElement('span');
+          ico.className = 'ico';
+          ico.textContent = entry.isDir ? '📁' : '📄';
+          nameCell.append(ico, document.createTextNode(entry.name));
+          nameCell.onclick = () => (entry.isDir ? open(entry.path) : preview(entry));
+          tr.append(nameCell);
+
+          const sizeCell = document.createElement('td');
+          sizeCell.className = 'num';
+          sizeCell.textContent = entry.sizeText;
+          tr.append(sizeCell);
+
+          const timeCell = document.createElement('td');
+          timeCell.className = 'num';
+          timeCell.textContent = fmtTime(entry.mtime);
+          tr.append(timeCell);
+
+          const actCell = document.createElement('td');
+          actCell.className = 'act';
+          if (!entry.isDir) {
+            actCell.append(button('下载', () => download(entry)));
+            if (isTextish(entry.name)) actCell.append(button('预览', () => preview(entry)));
+          }
+          actCell.append(button('重命名/移动', () => renameOrMove(entry)));
+          actCell.append(button('删除', () => remove(entry)));
+          tr.append(actCell);
+
+          tbody.append(tr);
+        }
+      }
+
+      function downloadUrl(entry) {
+        return `/pan123/api/download?token=${encodeURIComponent(TOKEN)}&path=${encodeURIComponent(entry.path)}`;
+      }
+
+      async function open(path) {
+        state.path = path || '/';
+        setStatus('加载中…');
+        try {
+          const data = await api('list?path=' + encodeURIComponent(state.path));
+          state.entries = data.entries;
+          renderCrumbs();
+          renderRows();
+          setConn('ok', '已连接');
+          setStatus(`${state.path} — ${data.total} 项${data.truncated ? '（已截断显示）' : ''}`);
+        } catch (err) {
+          setStatus(err.message, 'err');
+        }
+      }
+
+      function download(entry) {
+        const a = document.createElement('a');
+        a.href = downloadUrl(entry);
+        a.download = entry.name;
+        a.target = '_blank';
+        document.body.append(a);
+        a.click();
+        a.remove();
+      }
+
+      let previewState = { raw: '' };
+
+      function showPreviewMode(mode) {
+        $('view-rendered').classList.toggle('on', mode === 'rendered');
+        $('view-raw').classList.toggle('on', mode === 'raw');
+        $('view-body').hidden = mode !== 'rendered';
+        $('view-raw-body').hidden = mode !== 'raw';
+      }
+
+      async function preview(entry) {
+        setStatus(`读取 ${entry.name} …`);
+        try {
+          const data = await api('content?path=' + encodeURIComponent(entry.path));
+          previewState = { raw: data.content };
+          $('view-title').textContent = `${entry.name}（${data.bytes} 字节${data.truncated ? '，已截断' : ''}）`;
+          $('view-download').href = downloadUrl(entry);
+          $('view-download').setAttribute('download', entry.name);
+          const markdown = isMarkdown(entry.name);
+          $('view-body').innerHTML = markdown
+            ? renderMarkdown(data.content)
+            : `<pre class="raw">${escapeHtml(data.content)}</pre>`;
+          $('view-raw-body').textContent = data.content;
+          $('view-rendered').hidden = !markdown;
+          showPreviewMode(markdown ? 'rendered' : 'raw');
+          $('view-dialog').showModal();
+          setStatus('');
+        } catch (err) {
+          setStatus(err.message, 'err');
+        }
+      }
+
+      function askDialog(title, fields) {
+        return new Promise((resolve) => {
+          $('prompt-title').textContent = title;
+          const box = $('prompt-fields');
+          box.textContent = '';
+          const inputs = [];
+          for (const field of fields) {
+            const label = document.createElement('label');
+            label.textContent = field.label;
+            const input = document.createElement('input');
+            input.value = field.value ?? '';
+            input.placeholder = field.placeholder ?? '';
+            box.append(label, input);
+            inputs.push(input);
+          }
+          const ok = $('prompt-ok');
+          const cancel = $('prompt-cancel');
+          const close = (value) => {
+            ok.onclick = cancel.onclick = null;
+            $('prompt-dialog').close();
+            resolve(value);
+          };
+          ok.onclick = () => close(inputs.map((input) => input.value.trim()));
+          cancel.onclick = () => close(null);
+          $('prompt-dialog').showModal();
+          inputs[0]?.focus();
+          for (const input of inputs) {
+            input.onkeydown = (event) => {
+              if (event.key === 'Enter') ok.click();
+              if (event.key === 'Escape') cancel.click();
+            };
+          }
+        });
+      }
+
+      async function renameOrMove(entry) {
+        const values = await askDialog(`重命名 / 移动「${entry.name}」`, [
+          { label: '新名称', value: entry.name },
+          { label: '目标目录', value: parentOf(entry.path), placeholder: '/dsh' },
+        ]);
+        if (!values) return;
+        const [name, dir] = values;
+        if (!name || !dir) return;
+        const to = dir === '/' ? '/' + name : dir.replace(/\/+$/, '') + '/' + name;
+        if (to === entry.path) return;
+        setStatus(`移动 ${entry.path} -> ${to} …`);
+        try {
+          await api('move', { method: 'POST', body: JSON.stringify({ from: entry.path, to }) });
+          setStatus(`已移动 ${entry.path} -> ${to}`, 'ok');
+          await open(state.path);
+        } catch (err) {
+          setStatus(err.message, 'err');
+        }
+      }
+
+      async function remove(entry) {
+        let recursive = false;
+        if (entry.isDir) {
+          let count = null;
+          try {
+            count = (await api('list?path=' + encodeURIComponent(entry.path))).total;
+          } catch { /* 忽略 */ }
+          const values = await askDialog(
+            `删除目录「${entry.name}」？123云盘会递归删除整棵子树${count === null ? '' : `（当前 ${count} 个子项）`}，没有回收站确认。`,
+            [{ label: '输入 DELETE 确认', value: '', placeholder: 'DELETE' }],
+          );
+          if (!values || values[0] !== 'DELETE') return;
+          recursive = true;
+        } else {
+          const values = await askDialog(`删除文件「${entry.name}」？此操作不可撤销。`, [
+            { label: '输入 DELETE 确认', value: '', placeholder: 'DELETE' },
+          ]);
+          if (!values || values[0] !== 'DELETE') return;
+        }
+        setStatus(`删除 ${entry.path} …`);
+        try {
+          await api('delete', { method: 'POST', body: JSON.stringify({ path: entry.path, recursive }) });
+          setStatus(`已删除 ${entry.path}`, 'ok');
+          await open(state.path);
+        } catch (err) {
+          setStatus(err.message, 'err');
+        }
+      }
+
+      function uploadFiles(files) {
+        const list = [...files];
+        if (list.length === 0) return;
+        let index = 0;
+        const next = () => {
+          if (index >= list.length) {
+            $('prog').style.display = 'none';
+            setStatus(`已上传 ${list.length} 个文件到 ${state.path}`, 'ok');
+            open(state.path);
+            return;
+          }
+          const file = list[index++];
+          const url = `/pan123/api/upload?dir=${encodeURIComponent(state.path)}&name=${encodeURIComponent(file.name)}`;
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', url);
+          xhr.setRequestHeader('X-Pan123-Token', TOKEN);
+          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+          $('prog').style.display = 'block';
+          xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable) return;
+            const pct = Math.round((event.loaded / event.total) * 100);
+            $('prog').firstElementChild.style.width = pct + '%';
+            setStatus(`上传 ${file.name} · ${pct}%（${index}/${list.length}）`);
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              setStatus(`已上传 ${file.name}`, 'ok');
+              next();
+            } else {
+              let message = `HTTP ${xhr.status}`;
+              try { message = JSON.parse(xhr.responseText).error.message; } catch { /* 忽略 */ }
+              $('prog').style.display = 'none';
+              setStatus(`上传 ${file.name} 失败：${message}`, 'err');
+            }
+          };
+          xhr.onerror = () => {
+            $('prog').style.display = 'none';
+            setStatus(`上传 ${file.name} 失败：网络错误`, 'err');
+          };
+          xhr.send(file);
+        };
+        next();
+      }
+
+      async function mkdir() {
+        const values = await askDialog('新建文件夹', [{ label: '名称', value: '', placeholder: '2026' }]);
+        if (!values || !values[0]) return;
+        const path = joinPath(state.path, values[0]);
+        setStatus(`创建 ${path} …`);
+        try {
+          await api('mkdir', { method: 'POST', body: JSON.stringify({ path }) });
+          setStatus(`已创建 ${path}`, 'ok');
+          await open(state.path);
+        } catch (err) {
+          setStatus(err.message, 'err');
+        }
+      }
+
+      function bootFiles() {
+        $('btn-refresh').onclick = () => open(state.path);
+        $('btn-up').onclick = () => open(parentOf(state.path));
+        $('btn-mkdir').onclick = mkdir;
+        $('btn-upload').onclick = () => $('picker').click();
+        $('view-close').onclick = () => $('view-dialog').close();
+        $('view-rendered').onclick = () => {
+          $('view-body').innerHTML = renderMarkdown(previewState.raw);
+          showPreviewMode('rendered');
+        };
+        $('view-raw').onclick = () => showPreviewMode('raw');
+        $('picker').onchange = (event) => {
+          uploadFiles(event.target.files);
+          event.target.value = '';
+        };
+
+        const drop = $('drop');
+        for (const type of ['dragenter', 'dragover']) {
+          drop.addEventListener(type, (event) => {
+            event.preventDefault();
+            drop.classList.add('hot');
+          });
+        }
+        for (const type of ['dragleave', 'drop']) drop.addEventListener(type, () => drop.classList.remove('hot'));
+        drop.addEventListener('drop', (event) => {
+          event.preventDefault();
+          uploadFiles(event.dataTransfer.files);
+        });
+
+        api('status')
+          .then((status) => {
+            const check = status.check;
+            if (check && check.ok) {
+              setConn('ok', `已连接 · 根目录 ${check.rootCount} 项`);
+              $('who').textContent = check.user || '';
+            } else {
+              setConn('bad', '未连接');
+              setStatus((check && (check.message || check.error)) || '凭据未配置', 'err');
+            }
+          })
+          .catch((err) => {
+            setConn('bad', '未连接');
+            setStatus(err.message, 'err');
+          });
+        open('/');
+      }
+
+      /* ============================== 设置页 ============================== */
+      const fieldValue = (id) => $(id).value.trim();
+
+      function fillSettings(data) {
+        const config = data.config || {};
+        const stored = data.stored || {};
+        $('s-url').value = config.url || '';
+        $('s-user').value = config.user || '';
+        $('s-password').value = '';
+        $('s-uploaddir').value = config.defaultUploadDir || '';
+        $('s-maxlist').value = config.maxListEntries || '';
+        $('s-readmax').value = config.readMaxBytes || '';
+        $('s-timeout').value = config.timeoutMs || '';
+        $('s-credpath').textContent = stored.credentialsFile || '';
+        $('s-password').placeholder = stored.hasPassword ? '已保存（留空表示不修改）' : '应用密码';
+
+        const info = $('s-info');
+        info.textContent = '';
+        const sourceLabel = { config: '插件 config', env: '环境变量', file: '本页保存的文件', settings: '设置文件' };
+        for (const [key, value] of [
+          ['WebDAV 地址', config.url || '（未设置）'],
+          ['账号', config.user || '（未设置）'],
+          ['地址来源', sourceLabel[data.sources && data.sources.url] || '（未知）'],
+          ['账号来源', sourceLabel[data.sources && data.sources.user] || '（未知）'],
+          ['应用密码', stored.hasPassword ? '已保存' : '未保存'],
+          ['凭据文件', stored.credentialsFile || ''],
+          ['偏好文件', stored.settingsFile || ''],
+        ]) {
+          const dt = document.createElement('dt');
+          dt.textContent = key;
+          const dd = document.createElement('dd');
+          dd.textContent = value;
+          info.append(dt, dd);
+        }
+
+        const overrides = Array.isArray(data.envOverrides) ? data.envOverrides : [];
+        const warn = $('s-warn');
+        if (overrides.length > 0) {
+          const names = { url: '地址', user: '账号', password: '密码' };
+          warn.hidden = false;
+          warn.textContent =
+            `注意：本机环境变量 WEBDAV_* 正在生效，已盖住本页保存的 ` +
+            overrides.map((field) => names[field] || field).join('、') +
+            '。要让本页的值生效，请先清掉对应的环境变量。';
+        } else {
+          warn.hidden = true;
+          warn.textContent = '';
+        }
+      }
+
+      async function loadSettings() {
+        try {
+          fillSettings(await api('config'));
+        } catch (err) {
+          setStatus(err.message, 'err');
+        }
+      }
+
+      async function saveSettings() {
+        const patch = {
+          url: fieldValue('s-url'),
+          user: fieldValue('s-user'),
+          defaultUploadDir: fieldValue('s-uploaddir'),
+          maxListEntries: fieldValue('s-maxlist'),
+          readMaxBytes: fieldValue('s-readmax'),
+          timeoutMs: fieldValue('s-timeout'),
+        };
+        const password = fieldValue('s-password');
+        if (password) patch.password = password;
+        setStatus('保存中…');
+        try {
+          fillSettings(await api('config', { method: 'POST', body: JSON.stringify(patch) }));
+          setStatus('已保存（立即生效，无需重启）', 'ok');
+        } catch (err) {
+          setStatus(err.message, 'err');
+        }
+      }
+
+      async function testConnection() {
+        const payload = { url: fieldValue('s-url'), user: fieldValue('s-user') };
+        const password = fieldValue('s-password');
+        if (password) payload.password = password;
+        setStatus('测试中…');
+        $('s-test').disabled = true;
+        try {
+          const data = await api('test', { method: 'POST', body: JSON.stringify(payload) });
+          const check = data.check || {};
+          if (check.ok) {
+            setConn('ok', `已连接 · 根目录 ${check.rootCount} 项`);
+            $('who').textContent = check.user || '';
+            setStatus(`连接成功：${check.url}（HTTP ${check.status}，根目录 ${check.rootCount} 项，账号 ${check.user}）`, 'ok');
+          } else {
+            setConn('bad', '未连接');
+            setStatus(`连接失败：${check.message || check.error}`, 'err');
+          }
+        } catch (err) {
+          setConn('bad', '未连接');
+          setStatus(err.message, 'err');
+        } finally {
+          $('s-test').disabled = false;
+        }
+      }
+
+      function bootSettings() {
+        $('s-save').onclick = saveSettings;
+        $('s-test').onclick = testConnection;
+        $('s-reload').onclick = loadSettings;
+        loadSettings().then(testConnection);
+      }
+
+      if (VIEW === 'settings') {
+        $('files-view').hidden = true;
+        $('files-tools').style.display = 'none';
+        $('settings-view').hidden = false;
+        $('settings-tools').style.display = 'flex';
+        document.title = '123云盘 · 设置';
+        bootSettings();
+      } else {
+        bootFiles();
+      }
+    </script>
+  </body>
+</html>

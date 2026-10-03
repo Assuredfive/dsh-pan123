@@ -1,0 +1,62 @@
+{
+  "name": "dsh-pan123",
+  "version": "0.1.0",
+  "description": "123云盘(123pan) WebDAV for DeepSeek Harness: agent tools (pan123_*), a file browser panel and a settings page. · 123云盘 WebDAV 插件：给 Agent 提供 pan123_* 工具，并在 DSH 界面里提供网盘文件浏览器与设置页。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "123pan",
+    "123云盘",
+    "123网盘",
+    "webdav",
+    "pan123"
+  ],
+  "license": "MIT",
+  "author": "Assuredfive",
+  "type": "module",
+  "engines": {
+    "node": ">=20.3.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Assuredfive/dsh-pan123.git"
+  },
+  "homepage": "https://github.com/Assuredfive/dsh-pan123#readme",
+  "bugs": {
+    "url": "https://github.com/Assuredfive/dsh-pan123/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-better-sidebar"
+      ],
+      "external": []
+    }
+  },
+  "scripts": {
+    "test": "node --test",
+    "prepublishOnly": "node --test"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
