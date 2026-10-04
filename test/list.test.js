@@ -16,14 +16,20 @@ function loadListHelpers() {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext(
-    `${snippet}\nglobalThis.__visibleEntries = visibleEntries; globalThis.__defaultDirFor = defaultDirFor;`,
+    `${snippet}\nglobalThis.__visibleEntries = visibleEntries; globalThis.__defaultDirFor = defaultDirFor;` +
+      'globalThis.__normalizeDir = normalizeDir; globalThis.__remotePath = remotePath;',
     sandbox,
     { filename: 'ui.html#list' },
   );
-  return { visibleEntries: sandbox.__visibleEntries, defaultDirFor: sandbox.__defaultDirFor };
+  return {
+    visibleEntries: sandbox.__visibleEntries,
+    defaultDirFor: sandbox.__defaultDirFor,
+    normalizeDir: sandbox.__normalizeDir,
+    remotePath: sandbox.__remotePath,
+  };
 }
 
-const { visibleEntries, defaultDirFor } = loadListHelpers();
+const { visibleEntries, defaultDirFor, normalizeDir, remotePath } = loadListHelpers();
 
 const file = (name, extra = {}) => ({ name, path: '/' + name, isDir: false, ...extra });
 const dir = (name) => ({ name, path: '/' + name, isDir: true });
@@ -125,4 +131,29 @@ test('切换排序键时的默认方向：时间/大小倒序，名称/类型升
   assert.equal(defaultDirFor('name'), 'asc');
   assert.equal(defaultDirFor('type'), 'asc');
   assert.equal(defaultDirFor('unknown'), 'asc');
+});
+
+test('normalizeDir：各种斜杠写法归一到 /a/b', () => {
+  assert.equal(normalizeDir('/dsh'), '/dsh');
+  assert.equal(normalizeDir('dsh'), '/dsh');
+  assert.equal(normalizeDir('dsh/'), '/dsh');
+  assert.equal(normalizeDir('/dsh/Obsidian/'), '/dsh/Obsidian');
+  assert.equal(normalizeDir('//dsh//Obsidian//'), '/dsh/Obsidian');
+  assert.equal(normalizeDir('\\dsh\\Obsidian'), '/dsh/Obsidian', '粘贴的 Windows 路径也要能用');
+  assert.equal(normalizeDir('  dsh  '), '/dsh');
+  for (const empty of ['/', '', '   ', null, undefined]) {
+    assert.equal(normalizeDir(empty), '/', `空值 ${JSON.stringify(empty)} 应回到根目录`);
+  }
+});
+
+test('remotePath：目录 + 名字拼成远端路径', () => {
+  assert.equal(remotePath('/', 'a.txt'), '/a.txt');
+  assert.equal(remotePath('/dsh', 'a.txt'), '/dsh/a.txt');
+  assert.equal(remotePath('/dsh/', 'a.txt'), '/dsh/a.txt');
+  assert.equal(remotePath('dsh', '/a.txt'), '/dsh/a.txt');
+  assert.equal(remotePath('/a//b/', 'x.md'), '/a/b/x.md');
+  assert.equal(remotePath('/dsh/Obsidian', '报告.md'), '/dsh/Obsidian/报告.md');
+  assert.equal(remotePath('/', '/'), '/', '空名字时返回目录本身');
+  assert.equal(remotePath('/dsh', '   '), '/dsh');
+  assert.equal(remotePath('', ''), '/');
 });

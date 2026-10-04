@@ -1,6 +1,6 @@
 {
   "name": "dsh-pan123",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "123云盘(123pan) WebDAV for DeepSeek Harness: agent tools (pan123_*), a file browser panel and a settings page. · 123云盘 WebDAV 插件：给 Agent 提供 pan123_* 工具，并在 DSH 界面里提供网盘文件浏览器与设置页。",
   "keywords": [
     "dsh",

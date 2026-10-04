@@ -114,6 +114,31 @@
       .ctx button:hover { background: var(--accent-soft); border-color: transparent; }
       .ctx button.danger { color: var(--danger); }
       .selbar[hidden], .ctx[hidden] { display: none; }
+      button[hidden] { display: none; }
+      table.list th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+      table.list th.sortable:hover { color: var(--text); }
+      table.list th.sortable .arrow { margin-left: 4px; opacity: 0.55; }
+      table.list th.sortable.on { color: var(--text); }
+      table.list th.sortable.on .arrow { opacity: 1; }
+      table.list tbody tr.active { outline: 2px solid var(--accent); outline-offset: -2px; }
+      td.name input.rename {
+        width: 100%; font: inherit; padding: 3px 6px; border-radius: 6px;
+        border: 1px solid var(--accent); background: var(--panel); color: var(--text);
+      }
+      button.more { padding: 2px 9px; font-size: 13px; letter-spacing: 1px; }
+      .pickbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+      .pickbar code { background: var(--code-bg); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
+      .picklist {
+        min-width: 420px; min-height: 140px; max-height: 46vh; overflow: auto;
+        border: 1px solid var(--border); border-radius: 8px; padding: 4px;
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .picklist button.pickitem { text-align: left; border-color: transparent; background: transparent; padding: 6px 8px; border-radius: 7px; }
+      .picklist button.pickitem:hover { background: var(--accent-soft); }
+      .picklist .hint { margin: 6px 8px; }
+      body.narrow table.list th.num, body.narrow table.list td.num { display: none; }
+      body.narrow #sortgroup { display: none; }
+      body.narrow .picklist { min-width: 0; }
       .status { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px; white-space: pre-wrap; }
       .status.err { color: var(--danger); }
       .status.ok { color: var(--ok); }
@@ -206,9 +231,9 @@
             <thead>
               <tr>
                 <th class="pick"><input type="checkbox" id="pick-all" aria-label="全选当前列表" /></th>
-                <th>名称</th>
-                <th class="num">大小</th>
-                <th class="num">修改时间</th>
+                <th class="sortable" data-key="name" title="点击按名称排序">名称<span class="arrow">↑</span></th>
+                <th class="num sortable" data-key="size" title="点击按大小排序">大小<span class="arrow"></span></th>
+                <th class="num sortable" data-key="mtime" title="点击按修改时间排序">修改时间<span class="arrow"></span></th>
                 <th class="act">操作</th>
               </tr>
             </thead>
@@ -218,6 +243,7 @@
         </div>
         <div id="drop" class="drop">把文件拖到这里即可上传到当前目录</div>
         <div class="progress" id="prog"><i></i></div>
+        <button id="prog-cancel" class="ghost" hidden style="margin-top: 6px">停止</button>
       </section>
 
       <section id="settings-view" hidden>
@@ -302,6 +328,21 @@
       </div>
     </dialog>
 
+    <dialog id="pick-dialog">
+      <h2 id="pick-title">移动到…</h2>
+      <div class="pickbar">
+        <button id="pick-up" class="ghost" title="上一级">↑ 上一级</button>
+        <code id="pick-path">/</code>
+        <span class="spacer"></span>
+        <button id="pick-mkdir" class="ghost">新建文件夹</button>
+      </div>
+      <div id="pick-list" class="picklist"></div>
+      <div class="row">
+        <button id="pick-cancel" class="ghost">取消</button>
+        <button id="pick-ok" class="primary">移动到这里</button>
+      </div>
+    </dialog>
+
     <dialog id="view-dialog" class="wide">
       <h2 id="view-title"></h2>
       <div class="viewbar">
@@ -328,6 +369,7 @@
         sortKey: 'name',
         sortDir: 'asc',
         selected: new Set(),
+        cursor: null,
       };
       const $ = (id) => document.getElementById(id);
 
@@ -350,9 +392,17 @@
         return data;
       }
 
-      function setStatus(message, kind) {
+      function setStatus(message, kind, action) {
         const el = $('status');
         el.textContent = message || '';
+        if (action) {
+          const button = document.createElement('button');
+          button.className = 'ghost';
+          button.style.marginLeft = '8px';
+          button.textContent = action.label;
+          button.onclick = action.onclick;
+          el.append(button);
+        }
         el.className = 'status' + (kind ? ' ' + kind : '');
       }
 
@@ -556,6 +606,25 @@
           .sort((a, b) => compareEntries(a, b, sortKey, sortDir));
       }
 
+      /** 远端目录规范化：'dsh/'、'/dsh'、'dsh'、'\\dsh' 都变成 '/dsh'；空值变成 '/'。 */
+      function normalizeDir(dir) {
+        const text = String(dir == null ? '' : dir)
+          .trim()
+          .replace(/\\/g, '/')
+          .replace(/\/{2,}/g, '/')
+          .replace(/^\/+/, '')
+          .replace(/\/+$/, '');
+        return text === '' ? '/' : '/' + text;
+      }
+
+      /** 用「目录 + 名字」拼远端路径，容忍两种入参的斜杠写法。 */
+      function remotePath(dir, name) {
+        const cleanName = String(name == null ? '' : name).trim().replace(/^\/+/, '').replace(/\/+$/, '');
+        const base = normalizeDir(dir);
+        if (cleanName === '') return base;
+        return base === '/' ? '/' + cleanName : base + '/' + cleanName;
+      }
+
       /* ============================ 文件浏览器 ============================ */
       const isTextish = (name) =>
         /\.(txt|md|markdown|json|ya?ml|toml|ini|cfg|conf|csv|log|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|sh|ps1|bat|cmd|sql|env)$/i.test(
@@ -563,10 +632,7 @@
         );
       const isMarkdown = (name) => /\.(md|markdown)$/i.test(name);
 
-      function joinPath(dir, name) {
-        const base = dir === '/' ? '' : dir.replace(/\/+$/, '');
-        return base + '/' + name;
-      }
+      const joinPath = (dir, name) => remotePath(dir, name);
       function parentOf(p) {
         const parts = p.split('/').filter(Boolean);
         parts.pop();
@@ -654,12 +720,24 @@
       }
 
       function updateSortButtons() {
-        for (const btn of document.querySelectorAll('#sortgroup button.sort')) {
+        for (const btn of document.querySelectorAll('#sortgroup button.sort, table.list th.sortable')) {
           const active = btn.dataset.key === state.sortKey;
           btn.classList.toggle('on', active);
           const arrow = btn.querySelector('.arrow');
           if (arrow) arrow.textContent = active ? (state.sortDir === 'desc' ? '↓' : '↑') : '';
         }
+      }
+
+      /** 统一排序入口：点当前键切换升降序，点新键用该键的默认方向。 */
+      function applySort(key) {
+        if (!SORT_LABELS[key]) return;
+        if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+        else {
+          state.sortKey = key;
+          state.sortDir = defaultDirFor(key);
+        }
+        savePrefs();
+        renderRows();
       }
 
       function renderRows() {
@@ -677,14 +755,15 @@
 
         for (const entry of list) {
           const tr = document.createElement('tr');
-          const selected = state.selected.has(entry.path);
-          if (selected) tr.className = 'sel';
+          tr.dataset.path = entry.path;
+          if (state.selected.has(entry.path)) tr.classList.add('sel');
+          if (state.cursor === entry.path) tr.classList.add('active');
 
           const pickCell = document.createElement('td');
           pickCell.className = 'pick';
           const box = document.createElement('input');
           box.type = 'checkbox';
-          box.checked = selected;
+          box.checked = state.selected.has(entry.path);
           box.setAttribute('aria-label', `选择 ${entry.name}`);
           box.onclick = (event) => {
             event.stopPropagation();
@@ -720,11 +799,22 @@
             actCell.append(button('下载', () => download(entry)));
             if (isTextish(entry.name)) actCell.append(button('预览', () => preview(entry)));
           }
-          actCell.append(button('重命名/移动', () => renameOrMove(entry)));
-          actCell.append(button('删除', () => remove(entry)));
+          const more = document.createElement('button');
+          more.className = 'ghost more';
+          more.title = '更多操作：重命名 / 移动到… / 删除';
+          more.textContent = '⋯';
+          more.setAttribute('aria-label', `更多操作：${entry.name}`);
+          more.onclick = (event) => {
+            event.stopPropagation();
+            openContextMenu(entry, more);
+          };
+          actCell.append(more);
           tr.append(actCell);
 
-          tr.oncontextmenu = (event) => showContextMenu(event, entry);
+          tr.oncontextmenu = (event) => {
+            event.preventDefault();
+            openContextMenu(entry, event);
+          };
           tbody.append(tr);
         }
         updateSelbar();
@@ -734,9 +824,38 @@
         return `/pan123/api/download?token=${encodeURIComponent(TOKEN)}&path=${encodeURIComponent(entry.path)}`;
       }
 
-      async function open(path) {
+      const PREF_KEY = 'dsh-pan123.ui.v1';
+
+      function savePrefs() {
+        try {
+          localStorage.setItem(
+            PREF_KEY,
+            JSON.stringify({
+              path: state.path,
+              filter: state.filter,
+              foldersOnly: state.foldersOnly,
+              sortKey: state.sortKey,
+              sortDir: state.sortDir,
+            }),
+          );
+        } catch { /* 隐私模式 / 禁用存储时忽略 */ }
+      }
+
+      function loadPrefs() {
+        try {
+          const data = JSON.parse(localStorage.getItem(PREF_KEY) || 'null');
+          return data && typeof data === 'object' ? data : null;
+        } catch {
+          return null;
+        }
+      }
+
+      async function open(path, options = {}) {
         const next = path || '/';
-        if (next !== state.path) state.selected.clear();
+        if (next !== state.path) {
+          state.selected.clear();
+          state.cursor = null;
+        }
         state.path = next;
         setStatus('加载中…');
         try {
@@ -747,7 +866,14 @@
           renderRows();
           setConn('ok', '已连接');
           setStatus(`${state.path} — ${data.total} 项${data.truncated ? '（已截断显示）' : ''}`);
+          savePrefs();
         } catch (err) {
+          if (state.path !== '/' && !options.fallbackTried) {
+            setStatus(`打不开 ${next}（${err.message}），已回到根目录`, 'err');
+            state.selected.clear();
+            state.cursor = null;
+            return open('/', { fallbackTried: true });
+          }
           setStatus(err.message, 'err');
         }
       }
@@ -763,6 +889,139 @@
       }
 
       /* ============================ 右键菜单 / 批量操作 ============================ */
+      let cancelFlag = { cancelled: false };
+      let activeXhr = null;
+
+      function showProgress(done, total, message) {
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        $('prog').style.display = 'block';
+        $('prog').firstElementChild.style.width = pct + '%';
+        const cancel = $('prog-cancel');
+        cancel.hidden = false;
+        cancel.disabled = false;
+        cancel.textContent = '停止';
+        if (message) setStatus(message);
+      }
+
+      function hideProgress() {
+        $('prog').style.display = 'none';
+        $('prog').firstElementChild.style.width = '0%';
+        const cancel = $('prog-cancel');
+        cancel.hidden = true;
+        cancel.disabled = false;
+        cancel.textContent = '停止';
+      }
+
+      function requestCancel() {
+        cancelFlag.cancelled = true;
+        $('prog-cancel').disabled = true;
+        $('prog-cancel').textContent = '正在停止…';
+        if (activeXhr) {
+          try {
+            activeXhr.abort();
+          } catch { /* 请求已结束 */ }
+        }
+      }
+
+      /* ---- 可视化目录选择器：选目标目录不用手打路径 ---- */
+      let pickState = { path: '/', onPick: null, busy: false };
+
+      function pickNote(text, isError) {
+        const note = document.createElement('p');
+        note.className = 'hint';
+        if (isError) note.style.color = 'var(--danger)';
+        note.textContent = text;
+        return note;
+      }
+
+      async function pickLoad(path) {
+        pickState.path = normalizeDir(path);
+        $('pick-path').textContent = pickState.path;
+        $('pick-up').disabled = pickState.path === '/';
+        const body = $('pick-list');
+        body.textContent = '';
+        body.append(pickNote('加载中…'));
+        try {
+          const data = await api('list?path=' + encodeURIComponent(pickState.path));
+          const dirs = (data.entries || []).filter((entry) => entry.isDir);
+          body.textContent = '';
+          if (dirs.length === 0) body.append(pickNote('这个目录下没有子文件夹，可以直接「移动到这里」'));
+          for (const dir of dirs) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'pickitem';
+            item.textContent = '📁 ' + dir.name;
+            item.onclick = () => pickLoad(dir.path);
+            body.append(item);
+          }
+        } catch (err) {
+          body.textContent = '';
+          body.append(pickNote(err.message, true));
+        }
+      }
+
+      function pickDirectory(title, onPick) {
+        pickState = { path: '/', onPick, busy: false };
+        $('pick-title').textContent = title;
+        $('pick-ok').disabled = false;
+        $('pick-dialog').showModal();
+        return pickLoad('/');
+      }
+
+      /** 逐个搬运，带进度与停止；文件夹移入自身会被跳过。 */
+      async function performMove(target, picked) {
+        const dir = normalizeDir(target);
+        const moves = [];
+        const skipped = [];
+        for (const entry of picked) {
+          const to = remotePath(dir, entry.name);
+          const intoItself = entry.isDir && (dir === entry.path || dir.startsWith(entry.path + '/'));
+          if (to === entry.path || intoItself) skipped.push(entry.name);
+          else moves.push({ entry, to });
+        }
+        if (moves.length === 0) {
+          setStatus('没有可移动的项：目标就是原位置，或把文件夹移进了它自己里面', 'err');
+          return false;
+        }
+        cancelFlag = { cancelled: false };
+        let done = 0;
+        const failed = [];
+        for (const item of moves) {
+          if (cancelFlag.cancelled) break;
+          showProgress(done + failed.length, moves.length, `移动中… ${done + failed.length + 1}/${moves.length} · ${item.entry.name}`);
+          try {
+            await api('move', { method: 'POST', body: JSON.stringify({ from: item.entry.path, to: item.to }) });
+            done += 1;
+          } catch (err) {
+            failed.push(`${item.entry.name}：${err.message}`);
+          }
+        }
+        hideProgress();
+        const stopped = cancelFlag.cancelled;
+        cancelFlag = { cancelled: false };
+        state.selected.clear();
+        await open(state.path);
+        const lines = [`已移动 ${done} 项到 ${dir}`];
+        if (skipped.length > 0) lines.push(`跳过 ${skipped.length} 项（原地或移入自身：${skipped.join('、')}）`);
+        if (stopped) lines.push('已手动停止，剩余未搬运');
+        if (failed.length > 0) lines.push(`失败 ${failed.length} 项\n${failed.join('\n')}`);
+        setStatus(lines.join('\n'), failed.length === 0 && !stopped ? 'ok' : 'err', {
+          label: '打开目标目录',
+          onclick: () => open(dir),
+        });
+        return failed.length === 0;
+      }
+
+      /** 打开目录选择器 → 选中后执行搬运。取消则什么都不做。 */
+      function moveViaPicker(picked) {
+        if (!picked || picked.length === 0) return Promise.resolve(false);
+        const title = picked.length === 1 ? `移动「${picked[0].name}」到…` : `把选中的 ${picked.length} 项移动到…`;
+        return new Promise((resolve) => {
+          pickDirectory(title, (dir) => resolve(performMove(dir, picked)));
+          $('pick-dialog').addEventListener('close', () => resolve(false), { once: true });
+        });
+      }
+
       async function copyText(text) {
         try {
           if (navigator.clipboard && window.isSecureContext) {
@@ -804,15 +1063,27 @@
         return item;
       }
 
-      function showContextMenu(event, entry) {
-        event.preventDefault();
+      /** 右键行 / 点行尾「⋯」都走这里。source 可以是鼠标事件，也可以是那个按钮。 */
+      function openContextMenu(entry, source) {
+        let x = 0;
+        let y = 0;
+        if (source && typeof source.clientX === 'number') {
+          x = source.clientX;
+          y = source.clientY;
+        } else if (source && typeof source.getBoundingClientRect === 'function') {
+          const anchor = source.getBoundingClientRect();
+          x = anchor.left;
+          y = anchor.bottom + 4;
+        }
         if (!state.selected.has(entry.path)) {
           state.selected.clear();
           state.selected.add(entry.path);
+          state.cursor = entry.path;
           renderRows();
         } else {
           updateSelbar();
         }
+        const info = selectionInfo();
         const el = $('ctx');
         el.textContent = '';
         if (entry.isDir) el.append(contextItem('打开', () => open(entry.path)));
@@ -822,15 +1093,17 @@
         }
         el.append(contextItem('复制下载链接', () => copyText(location.origin + downloadUrl(entry))));
         el.append(contextItem('复制路径', () => copyText(entry.path)));
-        el.append(contextItem('重命名 / 移动', () => renameOrMove(entry)));
-        const count = state.selected.size;
-        if (count > 1) el.append(contextItem(`删除选中的 ${count} 项…`, () => removeSelected(), true));
+        el.append(contextItem('重命名', () => renameEntry(entry)));
+        el.append(
+          contextItem(info.total > 1 ? `移动选中的 ${info.total} 项到…` : '移动到…', () => moveViaPicker(info.picked)),
+        );
+        if (info.total > 1) el.append(contextItem(`删除选中的 ${info.total} 项…`, () => removeSelected(), true));
         else el.append(contextItem('删除', () => remove(entry), true));
 
         el.hidden = false;
         const rect = el.getBoundingClientRect();
-        el.style.left = `${Math.max(4, Math.min(event.clientX, window.innerWidth - rect.width - 8))}px`;
-        el.style.top = `${Math.max(4, Math.min(event.clientY, window.innerHeight - rect.height - 8))}px`;
+        el.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 8))}px`;
+        el.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 8))}px`;
       }
 
       async function removeSelected() {
@@ -846,10 +1119,12 @@
           { label: '输入 DELETE 确认', value: '', placeholder: 'DELETE' },
         ]);
         if (!values || values[0] !== 'DELETE') return;
+        cancelFlag = { cancelled: false };
         let done = 0;
         const failed = [];
         for (const entry of info.picked) {
-          setStatus(`删除中… ${done + failed.length + 1}/${info.total} · ${entry.path}`);
+          if (cancelFlag.cancelled) break;
+          showProgress(done + failed.length, info.total, `删除中… ${done + failed.length + 1}/${info.total} · ${entry.path}`);
           try {
             await api('delete', { method: 'POST', body: JSON.stringify({ path: entry.path, recursive: entry.isDir }) });
             done += 1;
@@ -857,48 +1132,21 @@
             failed.push(`${entry.path}：${err.message}`);
           }
         }
+        hideProgress();
+        const stopped = cancelFlag.cancelled;
+        cancelFlag = { cancelled: false };
         state.selected.clear();
         await open(state.path);
-        setStatus(
-          failed.length === 0 ? `已删除 ${done} 项` : `已删除 ${done} 项，失败 ${failed.length} 项\n${failed.join('\n')}`,
-          failed.length === 0 ? 'ok' : 'err',
-        );
+        const lines = [`已删除 ${done} 项`];
+        if (stopped) lines.push('已手动停止，剩余未删除');
+        if (failed.length > 0) lines.push(`失败 ${failed.length} 项\n${failed.join('\n')}`);
+        setStatus(lines.join('\n'), failed.length === 0 ? 'ok' : 'err');
       }
 
       async function moveSelected() {
         const info = selectionInfo();
         if (info.total === 0) return;
-        const values = await askDialog(`把选中的 ${info.total} 项移动到…`, [
-          { note: '目标目录不存在时会失败；把文件夹移动到它自己或它的子目录下会被自动跳过。' },
-          { label: '目标目录', value: parentOf(info.picked[0].path), placeholder: '/dsh' },
-        ]);
-        if (!values || !values[0]) return;
-        const dir = values[0].replace(/\/+$/, '') || '/';
-        let done = 0;
-        const failed = [];
-        const skipped = [];
-        for (const entry of info.picked) {
-          const to = (dir === '/' ? '' : dir) + '/' + entry.name;
-          const intoItself = entry.isDir && (dir === entry.path || dir.startsWith(entry.path + '/'));
-          if (to === entry.path || intoItself) {
-            skipped.push(entry.path);
-            continue;
-          }
-          setStatus(`移动中… ${done + failed.length + skipped.length + 1}/${info.total} · ${entry.path}`);
-          try {
-            await api('move', { method: 'POST', body: JSON.stringify({ from: entry.path, to }) });
-            done += 1;
-          } catch (err) {
-            failed.push(`${entry.path}：${err.message}`);
-          }
-        }
-        state.selected.clear();
-        await open(state.path);
-        const extra = [
-          skipped.length > 0 ? `跳过 ${skipped.length} 项（原地或移入自身）` : '',
-          failed.length > 0 ? `失败 ${failed.length} 项\n${failed.join('\n')}` : '',
-        ].filter(Boolean).join('\n');
-        setStatus(`已移动 ${done} 项到 ${dir}${extra ? '\n' + extra : ''}`, failed.length === 0 ? 'ok' : 'err');
+        await moveViaPicker(info.picked);
       }
 
       async function downloadSelected() {
@@ -1002,23 +1250,75 @@
         });
       }
 
-      async function renameOrMove(entry) {
-        const values = await askDialog(`重命名 / 移动「${entry.name}」`, [
-          { label: '新名称', value: entry.name },
-          { label: '目标目录', value: parentOf(entry.path), placeholder: '/dsh' },
-        ]);
-        if (!values) return;
-        const [name, dir] = values;
-        if (!name || !dir) return;
-        const to = dir === '/' ? '/' + name : dir.replace(/\/+$/, '') + '/' + name;
-        if (to === entry.path) return;
-        setStatus(`移动 ${entry.path} -> ${to} …`);
+      function rowFor(path) {
+        return [...$('rows').children].find((tr) => tr.dataset.path === path) || null;
+      }
+
+      /** 行内重命名：只改名字、父目录不变。Enter 提交，Esc 或失焦取消。 */
+      function renameEntry(entry) {
+        const row = rowFor(entry.path);
+        if (!row) return;
+        const cell = row.querySelector('td.name');
+        cell.textContent = '';
+        const input = document.createElement('input');
+        input.className = 'rename';
+        input.value = entry.name;
+        input.setAttribute('aria-label', `重命名 ${entry.name}`);
+        cell.append(input);
+        const dot = entry.isDir ? -1 : entry.name.lastIndexOf('.');
+        if (dot > 0) input.setSelectionRange(0, dot);
+        else input.select();
+        input.focus();
+        let settled = false;
+        const finish = (commit) => {
+          if (settled) return;
+          settled = true;
+          const name = input.value.trim();
+          input.remove();
+          if (!commit || name === '' || name === entry.name) {
+            renderRows();
+            return;
+          }
+          if (name.includes('/') || name.includes('\\')) {
+            setStatus('名称里不能有斜杠', 'err');
+            renderRows();
+            return;
+          }
+          moveTo(entry, remotePath(parentOf(entry.path), name), name);
+        };
+        input.onkeydown = (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            finish(true);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            finish(false);
+          }
+        };
+        input.onblur = () => finish(false);
+      }
+
+      /** 移动单个条目，并给出可点回执。 */
+      async function moveTo(entry, to, newName) {
+        if (to === entry.path) {
+          renderRows();
+          return false;
+        }
+        const dir = parentOf(to);
+        setStatus(`移动中… ${entry.path} → ${to}`);
         try {
           await api('move', { method: 'POST', body: JSON.stringify({ from: entry.path, to }) });
-          setStatus(`已移动 ${entry.path} -> ${to}`, 'ok');
           await open(state.path);
+          setStatus(
+            newName ? `已重命名为「${newName}」` : `已移动「${entry.name}」到 ${dir}`,
+            'ok',
+            dir !== state.path ? { label: '打开目标目录', onclick: () => open(dir) } : null,
+          );
+          return true;
         } catch (err) {
           setStatus(err.message, 'err');
+          renderRows();
+          return false;
         }
       }
 
@@ -1054,42 +1354,75 @@
       function uploadFiles(files) {
         const list = [...files];
         if (list.length === 0) return;
-        let index = 0;
+        cancelFlag = { cancelled: false };
+        let done = 0;
+        let cancelReported = false;
+        const failed = [];
+        const reportCancelled = () => {
+          if (cancelReported) return;
+          cancelReported = true;
+          activeXhr = null;
+          hideProgress();
+          open(state.path);
+          setStatus(`上传已停止：成功 ${done} 个，失败 ${failed.length} 个`, 'err');
+        };
         const next = () => {
-          if (index >= list.length) {
-            $('prog').style.display = 'none';
-            setStatus(`已上传 ${list.length} 个文件到 ${state.path}`, 'ok');
-            open(state.path);
+          if (cancelFlag.cancelled) {
+            reportCancelled();
             return;
           }
-          const file = list[index++];
+          const index = done + failed.length;
+          if (index >= list.length) {
+            activeXhr = null;
+            hideProgress();
+            open(state.path);
+            setStatus(
+              failed.length === 0
+                ? `已上传 ${done} 个文件到 ${state.path}`
+                : `上传完成：成功 ${done} 个，失败 ${failed.length} 个\n${failed.join('\n')}`,
+              failed.length === 0 ? 'ok' : 'err',
+            );
+            return;
+          }
+          const file = list[index];
           const url = `/pan123/api/upload?dir=${encodeURIComponent(state.path)}&name=${encodeURIComponent(file.name)}`;
           const xhr = new XMLHttpRequest();
+          activeXhr = xhr;
           xhr.open('PUT', url);
           xhr.setRequestHeader('X-Pan123-Token', TOKEN);
           xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-          $('prog').style.display = 'block';
+          showProgress(index, list.length, `上传 ${file.name}（${index + 1}/${list.length}）`);
           xhr.upload.onprogress = (event) => {
-            if (!event.lengthComputable) return;
-            const pct = Math.round((event.loaded / event.total) * 100);
-            $('prog').firstElementChild.style.width = pct + '%';
-            setStatus(`上传 ${file.name} · ${pct}%（${index}/${list.length}）`);
+            if (!event.lengthComputable || cancelFlag.cancelled) return;
+            const within = Math.round((event.loaded / event.total) * 100);
+            const overall = Math.round(((index + event.loaded / event.total) / list.length) * 100);
+            $('prog').firstElementChild.style.width = overall + '%';
+            setStatus(`上传 ${file.name} · ${within}%（${index + 1}/${list.length}）`);
           };
           xhr.onload = () => {
+            if (cancelFlag.cancelled) {
+              reportCancelled();
+              return;
+            }
             if (xhr.status >= 200 && xhr.status < 300) {
+              done += 1;
               setStatus(`已上传 ${file.name}`, 'ok');
-              next();
             } else {
               let message = `HTTP ${xhr.status}`;
               try { message = JSON.parse(xhr.responseText).error.message; } catch { /* 忽略 */ }
-              $('prog').style.display = 'none';
-              setStatus(`上传 ${file.name} 失败：${message}`, 'err');
+              failed.push(`${file.name}：${message}`);
             }
+            next();
           };
           xhr.onerror = () => {
-            $('prog').style.display = 'none';
-            setStatus(`上传 ${file.name} 失败：网络错误`, 'err');
+            if (cancelFlag.cancelled) {
+              reportCancelled();
+              return;
+            }
+            failed.push(`${file.name}：网络错误`);
+            next();
           };
+          xhr.onabort = () => reportCancelled();
           xhr.send(file);
         };
         next();
@@ -1109,6 +1442,109 @@
         }
       }
 
+      /* ---- 快捷键 / 键盘导航 / 窄栏适配 ---- */
+      function isTypingTarget(target) {
+        const tag = (target && target.tagName) || '';
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (target && target.isContentEditable === true);
+      }
+
+      function dialogOpen() {
+        return Boolean(document.querySelector('dialog[open]'));
+      }
+
+      function moveCursor(delta) {
+        const list = currentVisible();
+        if (list.length === 0) return;
+        const index = list.findIndex((entry) => entry.path === state.cursor);
+        const next = index < 0
+          ? (delta > 0 ? 0 : list.length - 1)
+          : Math.min(list.length - 1, Math.max(0, index + delta));
+        state.cursor = list[next].path;
+        renderRows();
+        const row = rowFor(state.cursor);
+        if (row) row.scrollIntoView({ block: 'nearest' });
+      }
+
+      function toggleCursorSelection() {
+        const entry = currentVisible().find((item) => item.path === state.cursor);
+        if (!entry) return;
+        setSelected(entry.path, !state.selected.has(entry.path));
+        renderRows();
+        const row = rowFor(state.cursor);
+        if (row) row.scrollIntoView({ block: 'nearest' });
+      }
+
+      function activateCursor() {
+        const entry = currentVisible().find((item) => item.path === state.cursor);
+        if (!entry) return;
+        if (entry.isDir) open(entry.path);
+        else preview(entry);
+      }
+
+      function renameCursor() {
+        const info = selectionInfo();
+        const target =
+          info.total === 1 ? info.picked[0] : currentVisible().find((item) => item.path === state.cursor);
+        if (!target) {
+          setStatus('先选中一个条目（点行或按空格）再按 F2 重命名', 'err');
+          return;
+        }
+        renameEntry(target);
+      }
+
+      function handleShortcuts(event) {
+        if (event.key === 'Escape') {
+          closeContextMenu();
+          return;
+        }
+        if (dialogOpen() || isTypingTarget(event.target)) return;
+        if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A')) {
+          event.preventDefault();
+          selectAllVisible(true);
+          renderRows();
+          return;
+        }
+        if (event.key === '/') {
+          event.preventDefault();
+          $('q').focus();
+          return;
+        }
+        if (event.key === 'F2') {
+          event.preventDefault();
+          renameCursor();
+          return;
+        }
+        if (event.key === 'Delete') {
+          event.preventDefault();
+          if (selectionInfo().total > 0) removeSelected();
+          else setStatus('先用复选框勾选（或按空格勾选当前行）再按 Delete', 'err');
+          return;
+        }
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          moveCursor(1);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          moveCursor(-1);
+          return;
+        }
+        if (event.key === ' ') {
+          event.preventDefault();
+          toggleCursorSelection();
+          return;
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          activateCursor();
+        }
+      }
+
+      function applyNarrow() {
+        document.body.classList.toggle('narrow', window.innerWidth < 520);
+      }
+
       function bootFiles() {
         $('btn-refresh').onclick = () => open(state.path);
         $('btn-up').onclick = () => open(parentOf(state.path));
@@ -1126,36 +1562,41 @@
         };
 
         const search = $('q');
+        const prefs = loadPrefs();
+        if (prefs) {
+          if (SORT_LABELS[prefs.sortKey]) state.sortKey = prefs.sortKey;
+          if (prefs.sortDir === 'asc' || prefs.sortDir === 'desc') state.sortDir = prefs.sortDir;
+          if (typeof prefs.filter === 'string') {
+            state.filter = prefs.filter;
+            search.value = prefs.filter;
+          }
+          state.foldersOnly = prefs.foldersOnly === true;
+          $('only-dirs').checked = state.foldersOnly;
+        }
         search.addEventListener('input', () => {
           state.filter = search.value;
+          savePrefs();
           renderRows();
         });
         search.addEventListener('keydown', (event) => {
           if (event.key === 'Escape') {
             search.value = '';
             state.filter = '';
+            savePrefs();
             renderRows();
           }
         });
         $('only-dirs').addEventListener('change', (event) => {
           state.foldersOnly = event.target.checked;
+          savePrefs();
           renderRows();
         });
         $('pick-all').addEventListener('change', (event) => {
           selectAllVisible(event.target.checked);
           renderRows();
         });
-        for (const btn of document.querySelectorAll('#sortgroup button.sort')) {
-          btn.onclick = () => {
-            const key = btn.dataset.key;
-            if (state.sortKey === key) {
-              state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-            } else {
-              state.sortKey = key;
-              state.sortDir = defaultDirFor(key);
-            }
-            renderRows();
-          };
+        for (const btn of document.querySelectorAll('#sortgroup button.sort, table.list th.sortable')) {
+          btn.onclick = () => applySort(btn.dataset.key);
         }
         $('sel-all').onclick = () => {
           selectAllVisible(true);
@@ -1169,18 +1610,43 @@
         $('sel-mv').onclick = moveSelected;
         $('sel-rm').onclick = removeSelected;
 
+        /* 目录选择器 */
+        $('pick-up').onclick = () => pickLoad(parentOf(pickState.path));
+        $('pick-cancel').onclick = () => $('pick-dialog').close();
+        $('pick-ok').onclick = async () => {
+          if (pickState.busy) return;
+          pickState.busy = true;
+          $('pick-ok').disabled = true;
+          const target = pickState.path;
+          const handler = pickState.onPick;
+          $('pick-dialog').close();
+          try {
+            if (handler) await handler(target);
+          } finally {
+            pickState.busy = false;
+            $('pick-ok').disabled = false;
+          }
+        };
+        $('pick-mkdir').onclick = async () => {
+          const values = await askDialog('在当前位置新建文件夹', [{ label: '名称', value: '', placeholder: '归档' }]);
+          if (!values || !values[0]) return;
+          try {
+            await api('mkdir', { method: 'POST', body: JSON.stringify({ path: remotePath(pickState.path, values[0]) }) });
+            await pickLoad(pickState.path);
+          } catch (err) {
+            setStatus(err.message, 'err');
+          }
+        };
+
+        $('prog-cancel').onclick = requestCancel;
+
         document.addEventListener('click', closeContextMenu);
         document.addEventListener('scroll', closeContextMenu, true);
         window.addEventListener('resize', closeContextMenu);
         window.addEventListener('blur', closeContextMenu);
-        document.addEventListener('keydown', (event) => {
-          if (event.key === 'Escape') closeContextMenu();
-          const tag = (document.activeElement && document.activeElement.tagName) || '';
-          if (event.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
-            event.preventDefault();
-            search.focus();
-          }
-        });
+        window.addEventListener('resize', applyNarrow);
+        document.addEventListener('keydown', handleShortcuts);
+        applyNarrow();
 
         const drop = $('drop');
         for (const type of ['dragenter', 'dragover']) {
@@ -1210,7 +1676,7 @@
             setConn('bad', '未连接');
             setStatus(err.message, 'err');
           });
-        open('/');
+        open(prefs && typeof prefs.path === 'string' ? prefs.path : '/');
       }
 
       /* ============================== 设置页 ============================== */
