@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>123云盘 · dsh-pan123</title>
+    <title>网盘 · dsh-webdav</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -182,12 +182,38 @@
       .md .md-img { color: var(--muted); background: var(--code-bg); padding: 1px 6px; border-radius: 5px; }
       pre.raw { margin: 0; max-height: 62vh; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .viewbar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+      /* 多网盘：切换器、网盘卡片、预设提示。沿用既有变量与圆角，不另起一套视觉。 */
+      .toolbar .rlabel { font-size: 12px; color: var(--muted); white-space: nowrap; }
+      .toolbar select.remote {
+        font: inherit; padding: 5px 8px; border-radius: 8px; max-width: 190px;
+        border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      }
+      .chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
+      .status .hint { display: block; margin: 4px 0 0; }
+      .field select {
+        width: 100%; max-width: 460px; font: inherit; padding: 6px 9px;
+        border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      }
+      .rcard { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--border); }
+      .rcard:last-child { border-bottom: none; }
+      .rcard .meta { flex: 1 1 320px; min-width: 200px; }
+      .rcard .title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+      .rcard .sub { font-size: 12px; color: var(--muted); word-break: break-all; white-space: pre-line; }
+      .rcard .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+      .rcard .check { flex-basis: 100%; font-size: 12px; white-space: pre-wrap; }
+      .rcard .check.ok { color: var(--ok); }
+      .rcard .check.err { color: var(--danger); }
+      .note-title { font-size: 12px; color: var(--muted); margin: 10px 0 0; font-weight: 600; }
+      .note-list { margin: 4px 0 0; padding-left: 1.6em; font-size: 12px; color: var(--muted); }
+      .note-list li { margin: 3px 0; }
+      body.narrow .rcard .acts { flex-basis: 100%; }
+      body.narrow .toolbar select.remote { max-width: none; }
     </style>
   </head>
   <body>
     <div class="wrap">
       <header>
-        <h1>123云盘</h1>
+        <h1>网盘</h1>
         <span id="conn" class="pill">连接中…</span>
         <span id="who" class="pill"></span>
         <span class="spacer"></span>
@@ -196,16 +222,18 @@
           <button id="btn-refresh" class="ghost">刷新</button>
           <button id="btn-mkdir">新建文件夹</button>
           <button id="btn-upload" class="primary">上传文件</button>
-          <a class="btn ghost" href="/pan123?view=settings">设置</a>
+          <a class="btn ghost" href="/webdav?view=settings">设置</a>
         </span>
         <span id="settings-tools" style="display: none; gap: 8px">
-          <a class="btn" href="/pan123">文件浏览器</a>
+          <a class="btn" href="/webdav">文件浏览器</a>
         </span>
       </header>
 
       <section id="files-view">
         <div class="crumbs" id="crumbs"></div>
         <div class="toolbar">
+          <label class="rlabel" id="remote-label" for="remote" hidden>网盘</label>
+          <select id="remote" class="remote" hidden aria-label="切换网盘"></select>
           <input id="q" class="q" placeholder="在当前目录中搜索名称…（按 / 聚焦）" spellcheck="false" aria-label="搜索当前目录" />
           <label class="chk"><input type="checkbox" id="only-dirs" /> 仅文件夹</label>
           <span class="spacer"></span>
@@ -248,67 +276,97 @@
 
       <section id="settings-view" hidden>
         <div class="card pad">
-          <h2>连接状态</h2>
-          <div id="s-status" class="status" style="margin-top: 0"></div>
-          <dl class="kv" id="s-info" style="margin-top: 10px"></dl>
+          <h2>网盘列表</h2>
+          <p class="hint">
+            可以同时挂多个 WebDAV 网盘（123云盘、坚果云、群晖、飞牛、Nextcloud…）。工具与文件浏览器都按
+            <code>remote</code> 选其中一个；省略时用默认网盘。凭据只写进本机的凭据文件，<b>不会</b>进插件配置。
+          </p>
+          <div id="s-remotes"></div>
           <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
-            <button id="s-test" class="primary">测试连接</button>
-            <a class="btn" href="/pan123">打开文件浏览器</a>
+            <button id="s-add" class="primary">添加网盘</button>
+            <button id="s-reload" class="ghost">重新载入</button>
+            <a class="btn ghost" href="/webdav">打开文件浏览器</a>
           </div>
         </div>
 
-        <div class="card pad">
-          <h2>凭据（初始化）</h2>
-          <p class="hint">
-            123云盘 →「工具中心 → 第三方挂载」新建应用（授权目录「我的文件」、读写权限），
-            然后把手机号与应用密码填在这里。凭据写入本机 <code id="s-credpath">~/.config/123pan/webdav.env</code>，
-            <b>不会</b>写进插件配置，也不会进任何会同步的位置。
-          </p>
+        <div class="card pad" id="s-form-card" hidden>
+          <h2 id="s-form-title">添加网盘</h2>
+          <div class="grid">
+            <div class="field">
+              <label for="s-preset">服务商预设</label>
+              <select id="s-preset"></select>
+            </div>
+            <div class="field">
+              <label for="s-label">名称（显示在切换器里）</label>
+              <input id="s-label" spellcheck="false" placeholder="例如 家里的 NAS" />
+            </div>
+          </div>
           <div class="field">
-            <label>WebDAV 地址</label>
-            <input id="s-url" placeholder="https://webdav.123pan.cn/webdav" spellcheck="false" />
+            <label for="s-url">WebDAV 地址</label>
+            <input id="s-url" spellcheck="false" placeholder="https://example.com/remote.php/dav/files/me/" />
           </div>
           <div class="grid">
             <div class="field">
-              <label>账号（手机号）</label>
-              <input id="s-user" placeholder="13800000000" spellcheck="false" />
+              <label for="s-user">账号</label>
+              <input id="s-user" spellcheck="false" autocomplete="off" placeholder="留空表示不修改" />
             </div>
             <div class="field">
-              <label>应用密码</label>
-              <input id="s-password" type="password" placeholder="留空表示不修改已保存的密码" spellcheck="false" />
+              <label for="s-password">密码 / 应用密码</label>
+              <input id="s-password" type="password" spellcheck="false" autocomplete="new-password" placeholder="留空表示不修改" />
+            </div>
+            <div class="field">
+              <label for="s-uploaddir">默认上传目录（上传工具省略远端目录时）</label>
+              <input id="s-uploaddir" spellcheck="false" placeholder="例如 dsh；留空 = 根目录" />
             </div>
           </div>
-          <div id="s-warn" class="status err" hidden></div>
+          <label class="chk" id="s-clear-wrap" hidden style="margin-top: 4px">
+            <input type="checkbox" id="s-clear-cred" /> 清除这个网盘已保存的账号与密码
+          </label>
+          <div id="s-preset-note"></div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px">
+            <button id="s-save" class="primary">保存</button>
+            <button id="s-cancel" class="ghost">取消</button>
+            <button id="s-test">测试连接</button>
+          </div>
+          <div id="s-form-status" class="status"></div>
         </div>
 
         <div class="card pad">
           <h2>偏好</h2>
           <div class="grid">
             <div class="field">
-              <label>默认上传目录（pan123_put 省略远端目录时）</label>
-              <input id="s-uploaddir" placeholder="例如 dsh；留空 = 根目录" spellcheck="false" />
+              <label for="s-timeout">请求超时（毫秒）</label>
+              <input id="s-timeout" type="number" min="1" placeholder="120000" />
             </div>
             <div class="field">
-              <label>列目录最多返回条数</label>
-              <input id="s-maxlist" type="number" min="1" placeholder="1000" />
-            </div>
-            <div class="field">
-              <label>pan123_read 默认上限（字节）</label>
+              <label for="s-readmax">预览 / 读取默认上限（字节）</label>
               <input id="s-readmax" type="number" min="1" placeholder="262144" />
             </div>
             <div class="field">
-              <label>请求超时（毫秒）</label>
-              <input id="s-timeout" type="number" min="1" placeholder="120000" />
+              <label for="s-maxlist">列目录最多返回条数</label>
+              <input id="s-maxlist" type="number" min="1" placeholder="1000" />
+            </div>
+            <div class="field">
+              <label for="s-bigfile">大文件警告阈值（字节）</label>
+              <input id="s-bigfile" type="number" min="1" placeholder="209715200" />
             </div>
           </div>
           <div style="display: flex; gap: 8px; margin-top: 6px">
-            <button id="s-save" class="primary">保存</button>
-            <button id="s-reload" class="ghost">重新载入</button>
+            <button id="s-prefs-save" class="primary">保存偏好</button>
           </div>
           <p class="hint" style="margin-top: 10px">
-            保存后立即生效（工具与界面读同一份运行期配置），不需要重启 DSH。
-            有效凭据优先级：<b>插件 config &gt; 环境变量 &gt; 本页保存的 webdav.env</b>；
-            如果本机设了 <code>WEBDAV_*</code> 环境变量，上面会提示它盖住了本页的值。
+            默认阈值约 200 MB：上传超过它的文件前会先问一句（工具侧也会在结果里附上同样的警告）。
+            四项都是全局的，保存后立即生效，不需要重启 DSH；清空某一项会恢复它的默认值。
+          </p>
+        </div>
+
+        <div class="card pad">
+          <h2>位置与状态</h2>
+          <dl class="kv" id="s-paths"></dl>
+          <div id="s-env-warn" class="status err" hidden style="margin-top: 10px"></div>
+          <p class="hint" style="margin-top: 10px">
+            有效值优先级：<b>环境变量 &gt; 本页保存的配置</b>。环境变量只作用于默认网盘，
+            或用 <code>WEBDAV_REMOTE</code> 点名的那个网盘（多网盘下不会串台）。
           </p>
         </div>
       </section>
@@ -359,9 +417,14 @@
     </dialog>
 
     <script>
-      const TOKEN = '__PAN123_TOKEN__';
+      const TOKEN = '__WEBDAV_TOKEN__';
       const VIEW = new URLSearchParams(location.search).get('view') === 'settings' ? 'settings' : 'files';
       const state = {
+        /** 当前网盘 id（空 = 让 host 用默认网盘）；多网盘并存时全靠它区分请求。 */
+        remote: '',
+        remotes: [],
+        /** host 给的全局偏好（超时、读取上限、大文件阈值…）。 */
+        prefs: {},
         path: '/',
         entries: [],
         filter: '',
@@ -373,11 +436,22 @@
       };
       const $ = (id) => document.getElementById(id);
 
+      /** host 的错误负载（{error:{message,hint,status}}）→ Error，并保留 hint 供状态栏单独一行显示。 */
+      function apiError(payload, fallback) {
+        const error = new Error((payload && payload.message) || fallback);
+        error.hint = (payload && payload.hint) || '';
+        error.status = Number.isInteger(payload && payload.status) ? payload.status : null;
+        return error;
+      }
+
+      /** 聚合型的失败清单里「怎么修」比「错在哪」更有用，所以 message 与 hint 都带上。 */
+      const errText = (err) => [err && err.message, err && err.hint].filter(Boolean).join('\n');
+
       async function api(path, options = {}) {
-        const res = await fetch('/pan123/api/' + path, {
+        const res = await fetch('/webdav/api/' + path, {
           ...options,
           headers: {
-            'X-Pan123-Token': TOKEN,
+            'X-Webdav-Token': TOKEN,
             ...(options.body ? { 'Content-Type': 'application/json' } : {}),
             ...(options.headers || {}),
           },
@@ -385,16 +459,47 @@
         const text = await res.text();
         let data = null;
         try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-        if (!res.ok) {
-          const err = (data && data.error) || {};
-          throw new Error([err.message || `HTTP ${res.status}`, err.hint].filter(Boolean).join('\n'));
-        }
+        if (!res.ok) throw apiError(data && data.error, `HTTP ${res.status}`);
         return data;
       }
 
+      /**
+       * 所有涉及网盘内容的请求都带上当前 remote（省略时 host 用默认网盘）。
+       * 空值不写进查询串，免得出现 path=（空路径）这类越权语义。
+       */
+      function q(params = {}) {
+        const search = new URLSearchParams();
+        for (const [key, value] of Object.entries(params)) {
+          if (value === undefined || value === null || value === '') continue;
+          search.set(key, String(value));
+        }
+        if (state.remote) search.set('remote', state.remote);
+        return '?' + search.toString();
+      }
+
+      /** POST 用：把当前 remote 塞进 JSON body（host 端 body.remote 优先于查询串）。 */
+      function jsonBody(extra) {
+        return JSON.stringify(state.remote ? { ...extra, remote: state.remote } : extra);
+      }
+
+      const findRemote = (id) => state.remotes.find((remote) => remote.id === id) || null;
+      const remoteLabel = () => {
+        const found = findRemote(state.remote);
+        return found ? found.label || found.id : '';
+      };
+
+      /** message 可以是 Error（自动拆出 message / hint 并分行显示），也可以直接是字符串。 */
       function setStatus(message, kind, action) {
         const el = $('status');
-        el.textContent = message || '';
+        const error = message instanceof Error ? message : null;
+        el.textContent = error ? error.message : message || '';
+        const hint = error ? error.hint : '';
+        if (hint) {
+          const line = document.createElement('span');
+          line.className = 'hint';
+          line.textContent = hint;
+          el.append(line);
+        }
         if (action) {
           const button = document.createElement('button');
           button.className = 'ghost';
@@ -646,11 +751,26 @@
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
       }
 
+      /** 字节数 → 人读的大小；只用于界面提示，不参与任何协议字段。 */
+      function fmtBytes(value) {
+        const size = Number(value);
+        if (!Number.isFinite(size) || size < 0) return String(value);
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let n = size;
+        let unit = 0;
+        while (n >= 1024 && unit < units.length - 1) {
+          n /= 1024;
+          unit += 1;
+        }
+        return `${unit === 0 ? n : n.toFixed(n >= 100 ? 0 : 1)} ${units[unit]}`;
+      }
+
       function renderCrumbs() {
         const el = $('crumbs');
         el.textContent = '';
         const root = document.createElement('a');
-        root.textContent = '我的文件';
+        // 面包屑的第一节用网盘名：多网盘并存时，先看清「现在在哪张盘上」比「这是根目录」有用。
+        root.textContent = remoteLabel() || '根目录';
         root.onclick = () => open('/');
         el.append(root);
         let acc = '';
@@ -667,9 +787,9 @@
         }
       }
 
-      function button(label, onclick) {
+      function button(label, onclick, extraClass) {
         const b = document.createElement('button');
-        b.className = 'ghost';
+        b.className = 'ghost' + (extraClass ? ' ' + extraClass : '');
         b.textContent = label;
         b.onclick = (event) => {
           event.stopPropagation();
@@ -821,33 +941,67 @@
       }
 
       function downloadUrl(entry) {
-        return `/pan123/api/download?token=${encodeURIComponent(TOKEN)}&path=${encodeURIComponent(entry.path)}`;
+        // token 只能走查询串：<a download> 没法自定义请求头。
+        return `/webdav/api/download${q({ token: TOKEN, path: entry.path })}`;
       }
 
-      const PREF_KEY = 'dsh-pan123.ui.v1';
+      /* 界面偏好：v1 结构按网盘分别记住「上次浏览的目录」。多网盘之后必须分开存，
+         否则切到另一张盘会落到上一张盘的路径上。旧键只在没有新键时读一次做迁移。 */
+      const PREF_KEY = 'dsh-webdav.ui.v1';
+      const LEGACY_PREF_KEY = 'dsh-pan123.ui.v1';
+      let prefs = { remote: '', dirs: {}, filter: '', foldersOnly: false, sortKey: 'name', sortDir: 'asc' };
 
-      function savePrefs() {
+      function readStored(key) {
         try {
-          localStorage.setItem(
-            PREF_KEY,
-            JSON.stringify({
-              path: state.path,
-              filter: state.filter,
-              foldersOnly: state.foldersOnly,
-              sortKey: state.sortKey,
-              sortDir: state.sortDir,
-            }),
-          );
-        } catch { /* 隐私模式 / 禁用存储时忽略 */ }
-      }
-
-      function loadPrefs() {
-        try {
-          const data = JSON.parse(localStorage.getItem(PREF_KEY) || 'null');
+          const data = JSON.parse(localStorage.getItem(key) || 'null');
           return data && typeof data === 'object' ? data : null;
         } catch {
           return null;
         }
+      }
+
+      function loadPrefs() {
+        const current = readStored(PREF_KEY);
+        if (current) {
+          return {
+            remote: typeof current.remote === 'string' ? current.remote : '',
+            dirs: current.dirs && typeof current.dirs === 'object' ? { ...current.dirs } : {},
+            filter: typeof current.filter === 'string' ? current.filter : '',
+            foldersOnly: current.foldersOnly === true,
+            sortKey: SORT_LABELS[current.sortKey] ? current.sortKey : 'name',
+            sortDir: current.sortDir === 'desc' ? 'desc' : 'asc',
+          };
+        }
+        const legacy = readStored(LEGACY_PREF_KEY);
+        if (!legacy) return { ...prefs };
+        // 老结构只有一个 path：先记在 legacyPath 上，等 /api/config 拿到默认网盘 id 再归到它名下。
+        return {
+          ...prefs,
+          filter: typeof legacy.filter === 'string' ? legacy.filter : '',
+          foldersOnly: legacy.foldersOnly === true,
+          sortKey: SORT_LABELS[legacy.sortKey] ? legacy.sortKey : 'name',
+          sortDir: legacy.sortDir === 'desc' ? 'desc' : 'asc',
+          legacyPath: typeof legacy.path === 'string' ? legacy.path : '',
+        };
+      }
+
+      function savePrefs() {
+        try {
+          const { legacyPath, ...rest } = prefs;
+          localStorage.setItem(PREF_KEY, JSON.stringify(rest));
+        } catch { /* 隐私模式 / 禁用存储时忽略 */ }
+      }
+
+      /** 记住某个网盘的上次目录（只在成功打开目录或切换网盘时变）。 */
+      function rememberDir(path) {
+        if (!state.remote) return;
+        prefs.dirs[state.remote] = path;
+      }
+
+      /** 该网盘上次打开的目录；没有记录就回根目录。 */
+      function dirFor(remoteId) {
+        const saved = remoteId ? prefs.dirs[remoteId] : '';
+        return typeof saved === 'string' && saved ? saved : '/';
       }
 
       async function open(path, options = {}) {
@@ -859,13 +1013,14 @@
         state.path = next;
         setStatus('加载中…');
         try {
-          const data = await api('list?path=' + encodeURIComponent(state.path));
+          const data = await api('list' + q({ path: state.path }));
           state.entries = Array.isArray(data.entries) ? data.entries : [];
           pruneSelection();
           renderCrumbs();
           renderRows();
           setConn('ok', '已连接');
           setStatus(`${state.path} — ${data.total} 项${data.truncated ? '（已截断显示）' : ''}`);
+          rememberDir(state.path);
           savePrefs();
         } catch (err) {
           if (state.path !== '/' && !options.fallbackTried) {
@@ -874,7 +1029,7 @@
             state.cursor = null;
             return open('/', { fallbackTried: true });
           }
-          setStatus(err.message, 'err');
+          setStatus(err, 'err');
         }
       }
 
@@ -942,7 +1097,7 @@
         body.textContent = '';
         body.append(pickNote('加载中…'));
         try {
-          const data = await api('list?path=' + encodeURIComponent(pickState.path));
+          const data = await api('list' + q({ path: pickState.path }));
           const dirs = (data.entries || []).filter((entry) => entry.isDir);
           body.textContent = '';
           if (dirs.length === 0) body.append(pickNote('这个目录下没有子文件夹，可以直接「移动到这里」'));
@@ -990,10 +1145,10 @@
           if (cancelFlag.cancelled) break;
           showProgress(done + failed.length, moves.length, `移动中… ${done + failed.length + 1}/${moves.length} · ${item.entry.name}`);
           try {
-            await api('move', { method: 'POST', body: JSON.stringify({ from: item.entry.path, to: item.to }) });
+            await api('move', { method: 'POST', body: jsonBody({ from: item.entry.path, to: item.to }) });
             done += 1;
           } catch (err) {
-            failed.push(`${item.entry.name}：${err.message}`);
+            failed.push(`${item.entry.name}：${errText(err)}`);
           }
         }
         hideProgress();
@@ -1113,8 +1268,8 @@
           {
             note:
               info.dirs > 0
-                ? `其中 ${info.dirs} 个是文件夹：123云盘会递归删除整棵子树，没有回收站，无法撤销。`
-                : '此操作不可撤销，没有回收站。',
+                ? `其中 ${info.dirs} 个是文件夹：服务端会递归删除整棵子树，多数网盘没有回收站，无法撤销。`
+                : '此操作不可撤销，多数网盘没有回收站。',
           },
           { label: '输入 DELETE 确认', value: '', placeholder: 'DELETE' },
         ]);
@@ -1126,10 +1281,10 @@
           if (cancelFlag.cancelled) break;
           showProgress(done + failed.length, info.total, `删除中… ${done + failed.length + 1}/${info.total} · ${entry.path}`);
           try {
-            await api('delete', { method: 'POST', body: JSON.stringify({ path: entry.path, recursive: entry.isDir }) });
+            await api('delete', { method: 'POST', body: jsonBody({ path: entry.path, recursive: entry.isDir }) });
             done += 1;
           } catch (err) {
-            failed.push(`${entry.path}：${err.message}`);
+            failed.push(`${entry.path}：${errText(err)}`);
           }
         }
         hideProgress();
@@ -1189,7 +1344,7 @@
       async function preview(entry) {
         setStatus(`读取 ${entry.name} …`);
         try {
-          const data = await api('content?path=' + encodeURIComponent(entry.path));
+          const data = await api('content' + q({ path: entry.path }));
           previewState = { raw: data.content };
           $('view-title').textContent = `${entry.name}（${data.bytes} 字节${data.truncated ? '，已截断' : ''}）`;
           $('view-download').href = downloadUrl(entry);
@@ -1204,7 +1359,7 @@
           $('view-dialog').showModal();
           setStatus('');
         } catch (err) {
-          setStatus(err.message, 'err');
+          setStatus(err, 'err');
         }
       }
 
@@ -1307,7 +1462,7 @@
         const dir = parentOf(to);
         setStatus(`移动中… ${entry.path} → ${to}`);
         try {
-          await api('move', { method: 'POST', body: JSON.stringify({ from: entry.path, to }) });
+          await api('move', { method: 'POST', body: jsonBody({ from: entry.path, to }) });
           await open(state.path);
           setStatus(
             newName ? `已重命名为「${newName}」` : `已移动「${entry.name}」到 ${dir}`,
@@ -1316,7 +1471,7 @@
           );
           return true;
         } catch (err) {
-          setStatus(err.message, 'err');
+          setStatus(err, 'err');
           renderRows();
           return false;
         }
@@ -1327,10 +1482,10 @@
         if (entry.isDir) {
           let count = null;
           try {
-            count = (await api('list?path=' + encodeURIComponent(entry.path))).total;
+            count = (await api('list' + q({ path: entry.path }))).total;
           } catch { /* 忽略 */ }
           const values = await askDialog(
-            `删除目录「${entry.name}」？123云盘会递归删除整棵子树${count === null ? '' : `（当前 ${count} 个子项）`}，没有回收站确认。`,
+            `删除目录「${entry.name}」？服务端会递归删除整棵子树${count === null ? '' : `（当前 ${count} 个子项）`}，多数网盘没有回收站。`,
             [{ label: '输入 DELETE 确认', value: '', placeholder: 'DELETE' }],
           );
           if (!values || values[0] !== 'DELETE') return;
@@ -1343,17 +1498,32 @@
         }
         setStatus(`删除 ${entry.path} …`);
         try {
-          await api('delete', { method: 'POST', body: JSON.stringify({ path: entry.path, recursive }) });
+          await api('delete', { method: 'POST', body: jsonBody({ path: entry.path, recursive }) });
           setStatus(`已删除 ${entry.path}`, 'ok');
           await open(state.path);
         } catch (err) {
-          setStatus(err.message, 'err');
+          setStatus(err, 'err');
         }
       }
 
-      function uploadFiles(files) {
+      /** 上传到当前网盘 + 当前目录；逐个串行 PUT，方便「停止」停在文件边界上。 */
+      async function uploadFiles(files, confirmed) {
         const list = [...files];
         if (list.length === 0) return;
+        const threshold = Number(state.prefs?.bigFileWarnBytes) || 0;
+        const oversized = threshold > 0 ? list.filter((file) => file.size > threshold) : [];
+        if (oversized.length > 0 && !confirmed) {
+          // 与服务端无关的前置提醒（和工具侧的 warnings 同一个阈值）：WebDAV 没有秒传/断点续传。
+          const total = oversized.reduce((sum, file) => sum + file.size, 0);
+          const values = await askDialog(`有 ${oversized.length} 个文件超过大文件阈值（${fmtBytes(threshold)}），仍然上传？`, [
+            {
+              note:
+                `合计约 ${fmtBytes(total)}。WebDAV 没有秒传 / 断点续传，大文件在各家服务端都容易失败，` +
+                '必要时改用该网盘的官方客户端。',
+            },
+          ]);
+          if (values === null) return;
+        }
         cancelFlag = { cancelled: false };
         let done = 0;
         let cancelReported = false;
@@ -1378,18 +1548,19 @@
             open(state.path);
             setStatus(
               failed.length === 0
-                ? `已上传 ${done} 个文件到 ${state.path}`
+                ? `已上传 ${done} 个文件到 ${[remoteLabel(), state.path].filter(Boolean).join(' ')}`
                 : `上传完成：成功 ${done} 个，失败 ${failed.length} 个\n${failed.join('\n')}`,
               failed.length === 0 ? 'ok' : 'err',
             );
             return;
           }
           const file = list[index];
-          const url = `/pan123/api/upload?dir=${encodeURIComponent(state.path)}&name=${encodeURIComponent(file.name)}`;
+          // upload 是流式 PUT，只能带查询串 + 请求头：token 走头，remote 走查询串。
+          const url = `/webdav/api/upload${q({ dir: state.path, name: file.name })}`;
           const xhr = new XMLHttpRequest();
           activeXhr = xhr;
           xhr.open('PUT', url);
-          xhr.setRequestHeader('X-Pan123-Token', TOKEN);
+          xhr.setRequestHeader('X-Webdav-Token', TOKEN);
           xhr.setRequestHeader('Content-Type', 'application/octet-stream');
           showProgress(index, list.length, `上传 ${file.name}（${index + 1}/${list.length}）`);
           xhr.upload.onprogress = (event) => {
@@ -1409,7 +1580,10 @@
               setStatus(`已上传 ${file.name}`, 'ok');
             } else {
               let message = `HTTP ${xhr.status}`;
-              try { message = JSON.parse(xhr.responseText).error.message; } catch { /* 忽略 */ }
+              try {
+                const payload = JSON.parse(xhr.responseText);
+                message = [payload?.error?.message, payload?.error?.hint].filter(Boolean).join(' — ') || message;
+              } catch { /* 响应不是 JSON，就用状态码 */ }
               failed.push(`${file.name}：${message}`);
             }
             next();
@@ -1434,11 +1608,11 @@
         const path = joinPath(state.path, values[0]);
         setStatus(`创建 ${path} …`);
         try {
-          await api('mkdir', { method: 'POST', body: JSON.stringify({ path }) });
+          await api('mkdir', { method: 'POST', body: jsonBody({ path }) });
           setStatus(`已创建 ${path}`, 'ok');
           await open(state.path);
         } catch (err) {
-          setStatus(err.message, 'err');
+          setStatus(err, 'err');
         }
       }
 
@@ -1545,6 +1719,81 @@
         document.body.classList.toggle('narrow', window.innerWidth < 520);
       }
 
+      /** 把 /api/config 的结果铺到界面上：网盘清单、当前网盘、标题。两个视图都走这里。 */
+      function applyConfig(data) {
+        const list = data && Array.isArray(data.remotes) ? data.remotes : [];
+        state.remotes = list;
+        state.prefs = data && data.prefs && typeof data.prefs === 'object' ? data.prefs : {};
+        const ids = new Set(list.map((remote) => remote.id));
+        // 记住的网盘可能已经被删掉：回落到 host 给的默认网盘。
+        if (!ids.has(state.remote)) {
+          state.remote = ids.has(data?.default) ? data.default : list[0]?.id || '';
+        }
+        // 老键迁移：旧版本只存了一个 path，只能归给「当前这个网盘」。
+        if (prefs.legacyPath && state.remote && prefs.dirs[state.remote] === undefined) {
+          prefs.dirs[state.remote] = prefs.legacyPath;
+        }
+        delete prefs.legacyPath;
+        prefs.remote = state.remote;
+        savePrefs();
+
+        const select = $('remote');
+        select.textContent = '';
+        for (const remote of list) {
+          const option = document.createElement('option');
+          option.value = remote.id;
+          option.textContent = remote.label || remote.id;
+          select.append(option);
+        }
+        select.value = state.remote;
+        // 只有一个网盘时切换器没有意义，藏起来省地方。
+        const multiple = list.length > 1;
+        select.hidden = !multiple;
+        $('remote-label').hidden = !multiple;
+        const label = remoteLabel();
+        document.title = VIEW === 'settings' ? (label ? `${label} · 网盘设置` : '网盘设置') : label ? `${label} · 网盘` : '网盘';
+      }
+
+      /** 连接状态：成功只更新右上角的标记，失败才占用状态栏（那里常放着更要紧的操作回执）。 */
+      async function refreshConn() {
+        setConn('', '连接中…');
+        try {
+          const data = await api('status' + q());
+          const check = data && data.check;
+          const label = remoteLabel();
+          $('who').textContent = label;
+          if (check && check.ok) {
+            setConn('ok', `已连接 · 根目录 ${check.rootCount} 项`);
+            $('who').textContent = [label, check.user].filter(Boolean).join(' · ');
+          } else {
+            setConn('bad', '未连接');
+            if (check) setStatus(apiError(check, '连接失败'), 'err');
+          }
+        } catch (err) {
+          setConn('bad', '未连接');
+          setStatus(err, 'err');
+        }
+      }
+
+      /** 切换网盘：清空选择，跳到该网盘上次记住的目录（没记录就根目录）。 */
+      function switchRemote(id) {
+        if (!id || id === state.remote) return;
+        state.remote = id;
+        // 用户手点 <select> 时值本来就是对的；这里再写一次是为了让「程序化切换」也把控件留在同一状态。
+        $('remote').value = id;
+        state.entries = [];
+        state.selected.clear();
+        state.cursor = null;
+        state.path = '/';
+        prefs.remote = id;
+        savePrefs();
+        renderCrumbs();
+        renderRows();
+        setStatus('');
+        refreshConn();
+        open(dirFor(id));
+      }
+
       function bootFiles() {
         $('btn-refresh').onclick = () => open(state.path);
         $('btn-up').onclick = () => open(parentOf(state.path));
@@ -1562,17 +1811,13 @@
         };
 
         const search = $('q');
-        const prefs = loadPrefs();
-        if (prefs) {
-          if (SORT_LABELS[prefs.sortKey]) state.sortKey = prefs.sortKey;
-          if (prefs.sortDir === 'asc' || prefs.sortDir === 'desc') state.sortDir = prefs.sortDir;
-          if (typeof prefs.filter === 'string') {
-            state.filter = prefs.filter;
-            search.value = prefs.filter;
-          }
-          state.foldersOnly = prefs.foldersOnly === true;
-          $('only-dirs').checked = state.foldersOnly;
-        }
+        // 偏好已在启动时读进 prefs（见文件末尾的 VIEW 分支），这里只负责铺到控件上。
+        state.sortKey = SORT_LABELS[prefs.sortKey] ? prefs.sortKey : 'name';
+        state.sortDir = prefs.sortDir === 'desc' ? 'desc' : 'asc';
+        state.filter = typeof prefs.filter === 'string' ? prefs.filter : '';
+        search.value = state.filter;
+        state.foldersOnly = prefs.foldersOnly === true;
+        $('only-dirs').checked = state.foldersOnly;
         search.addEventListener('input', () => {
           state.filter = search.value;
           savePrefs();
@@ -1609,6 +1854,7 @@
         $('sel-dl').onclick = downloadSelected;
         $('sel-mv').onclick = moveSelected;
         $('sel-rm').onclick = removeSelected;
+        $('remote').addEventListener('change', (event) => switchRemote(event.target.value));
 
         /* 目录选择器 */
         $('pick-up').onclick = () => pickLoad(parentOf(pickState.path));
@@ -1631,10 +1877,10 @@
           const values = await askDialog('在当前位置新建文件夹', [{ label: '名称', value: '', placeholder: '归档' }]);
           if (!values || !values[0]) return;
           try {
-            await api('mkdir', { method: 'POST', body: JSON.stringify({ path: remotePath(pickState.path, values[0]) }) });
+            await api('mkdir', { method: 'POST', body: jsonBody({ path: remotePath(pickState.path, values[0]) }) });
             await pickLoad(pickState.path);
           } catch (err) {
-            setStatus(err.message, 'err');
+            setStatus(err, 'err');
           }
         };
 
@@ -1661,68 +1907,283 @@
           uploadFiles(event.dataTransfer.files);
         });
 
-        api('status')
-          .then((status) => {
-            const check = status.check;
-            if (check && check.ok) {
-              setConn('ok', `已连接 · 根目录 ${check.rootCount} 项`);
-              $('who').textContent = check.user || '';
-            } else {
-              setConn('bad', '未连接');
-              setStatus((check && (check.message || check.error)) || '凭据未配置', 'err');
+        // 先拿 config：切换器、记住的网盘、该网盘的上次目录都靠它。
+        api('config')
+          .then((data) => {
+            applyConfig(data);
+            if (state.remotes.length === 0) {
+              // 一个网盘都没有：不必去请求 list（那只会回「还没有配置任何远程」），直接给入口。
+              setConn('bad', '未配置');
+              renderCrumbs();
+              renderRows();
+              setStatus('还没有配置任何网盘：请到设置页添加一个 WebDAV 网盘（选预设、填地址与账号 / 应用密码）。', 'err', {
+                label: '打开设置',
+                onclick: () => {
+                  location.href = '/webdav?view=settings';
+                },
+              });
+              return null;
             }
+            refreshConn();
+            return open(dirFor(state.remote));
           })
           .catch((err) => {
+            // 连配置都读不到也要能用：不带 remote 时 host 会用默认网盘兜底。
             setConn('bad', '未连接');
-            setStatus(err.message, 'err');
+            setStatus(err, 'err');
+            return open('/');
           });
-        open(prefs && typeof prefs.path === 'string' ? prefs.path : '/');
       }
 
       /* ============================== 设置页 ============================== */
       const fieldValue = (id) => $(id).value.trim();
 
-      function fillSettings(data) {
-        const config = data.config || {};
-        const stored = data.stored || {};
-        $('s-url').value = config.url || '';
-        $('s-user').value = config.user || '';
-        $('s-password').value = '';
-        $('s-uploaddir').value = config.defaultUploadDir || '';
-        $('s-maxlist').value = config.maxListEntries || '';
-        $('s-readmax').value = config.readMaxBytes || '';
-        $('s-timeout').value = config.timeoutMs || '';
-        $('s-credpath').textContent = stored.credentialsFile || '';
-        $('s-password').placeholder = stored.hasPassword ? '已保存（留空表示不修改）' : '应用密码';
+      /** 全局偏好的输入框（键、元素 id、报错时用的中文名）。 */
+      const PREF_FIELDS = [
+        ['timeoutMs', 's-timeout', '请求超时'],
+        ['readMaxBytes', 's-readmax', '读取默认上限'],
+        ['maxListEntries', 's-maxlist', '列目录最多返回条数'],
+        ['bigFileWarnBytes', 's-bigfile', '大文件警告阈值'],
+      ];
+      const FIELD_NAMES = { url: '地址', user: '账号', password: '密码' };
 
-        const info = $('s-info');
-        info.textContent = '';
-        const sourceLabel = { config: '插件 config', env: '环境变量', file: '本页保存的文件', settings: '设置文件' };
+      /** 设置页的运行时状态：预设表、路径、环境变量覆盖，以及表单正在编辑哪个网盘。 */
+      let settings = { presets: [], paths: {}, envOverrides: [], default: '' };
+      let editing = { id: '', labelTouched: false, busy: false };
+
+      function pill(text, kind) {
+        const el = document.createElement('span');
+        el.className = 'pill' + (kind ? ' ' + kind : '');
+        el.textContent = text;
+        return el;
+      }
+
+      /** host 的 envOverrides 是 `${id}.${field}`，这里翻成「某网盘 的地址」。 */
+      function overrideText(entry) {
+        const dot = String(entry).lastIndexOf('.');
+        const id = dot > 0 ? String(entry).slice(0, dot) : '';
+        const field = dot > 0 ? String(entry).slice(dot + 1) : String(entry);
+        const found = state.remotes.find((remote) => remote.id === id);
+        return `${found ? found.label || found.id : id} 的${FIELD_NAMES[field] || field}`;
+      }
+
+      function overriddenFields(remoteId) {
+        const prefix = remoteId + '.';
+        return settings.envOverrides
+          .filter((entry) => String(entry).startsWith(prefix))
+          .map((entry) => FIELD_NAMES[String(entry).slice(prefix.length)] || String(entry).slice(prefix.length));
+      }
+
+      /* ---- ① 网盘列表 ---- */
+
+      function renderRemotes(data) {
+        const box = $('s-remotes');
+        box.textContent = '';
+        const remotes = Array.isArray(data.remotes) ? data.remotes : [];
+        if (remotes.length === 0) {
+          const empty = document.createElement('p');
+          empty.className = 'hint';
+          empty.textContent = '还没有配置任何网盘。点下面的「添加网盘」开始：选一个预设，它会告诉你地址怎么填、应用密码去哪拿。';
+          box.append(empty);
+          return;
+        }
+        for (const remote of remotes) box.append(remoteCard(remote));
+      }
+
+      function remoteCard(remote) {
+        const card = document.createElement('div');
+        card.className = 'rcard';
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const title = document.createElement('div');
+        title.className = 'title';
+        const name = document.createElement('b');
+        name.textContent = remote.label || remote.id;
+        title.append(name, pill(remote.presetLabel || remote.preset || '自定义'));
+        if (remote.isDefault) title.append(pill('当前默认', 'ok'));
+        const overridden = overriddenFields(remote.id);
+        if (overridden.length > 0) title.append(pill(`环境变量覆盖：${overridden.join('、')}`, 'bad'));
+        if (!remote.hasPassword) title.append(pill('缺密码', 'bad'));
+        if (remote.enabled === false) title.append(pill('已停用'));
+
+        const sub = document.createElement('div');
+        sub.className = 'sub';
+        sub.textContent = [
+          `${remote.id}　${remote.url || '（未填地址）'}`,
+          `账号：${remote.user || '（未设置）'}　默认上传目录：${remote.defaultUploadDir || '（根目录）'}`,
+        ].join('\n');
+        meta.append(title, sub);
+
+        const acts = document.createElement('div');
+        acts.className = 'acts';
+        const check = document.createElement('div');
+        check.className = 'check';
+        acts.append(button('测试连接', () => testRemote(remote, check)), button('编辑', () => openForm(remote)));
+        if (!remote.isDefault) acts.append(button('设为默认', () => setDefault(remote)));
+        acts.append(button('删除', () => removeRemote(remote), 'danger'));
+
+        card.append(meta, acts, check);
+        return card;
+      }
+
+      /* ---- ② 添加 / 编辑表单 ---- */
+
+      const placeholderRange = (template) => {
+        const match = /<[^>]+>/.exec(String(template || ''));
+        return match ? { start: match.index, end: match.index + match[0].length } : null;
+      };
+
+      const defaultPresetId = () =>
+        settings.presets.some((preset) => preset.id === 'custom') ? 'custom' : settings.presets[0]?.id || '';
+
+      function fillPresets(presets) {
+        settings.presets = Array.isArray(presets) ? presets : [];
+        const select = $('s-preset');
+        select.textContent = '';
+        for (const preset of settings.presets) {
+          const option = document.createElement('option');
+          option.value = preset.id;
+          option.textContent = preset.label || preset.id;
+          select.append(option);
+        }
+        select.value = defaultPresetId();
+      }
+
+      /** 预设提示区：这是选预设最大的价值——「密码去哪拿」和「实测踩过的坑」。 */
+      function renderPresetNote(presetId) {
+        const box = $('s-preset-note');
+        box.textContent = '';
+        const preset = settings.presets.find((item) => item.id === presetId);
+        if (!preset) return;
+        const addList = (title, items) => {
+          if (!Array.isArray(items) || items.length === 0) return;
+          const head = document.createElement('p');
+          head.className = 'note-title';
+          head.textContent = title;
+          const list = document.createElement('ul');
+          list.className = 'note-list';
+          for (const item of items) {
+            const li = document.createElement('li');
+            // 预设文案里有 **粗体** 与 `代码`：复用页面自带的行内渲染（内部已做 HTML 转义）。
+            li.innerHTML = renderInline(String(item));
+            list.append(li);
+          }
+          box.append(head, list);
+        };
+        addList('怎么填 / 密码去哪拿', preset.tips);
+        addList('实测的坑', preset.quirks);
+        if (preset.helpUrl) {
+          const head = document.createElement('p');
+          head.className = 'note-title';
+          const link = document.createElement('a');
+          link.href = preset.helpUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = preset.helpUrl;
+          head.append('官方帮助：', link);
+          box.append(head);
+        }
+      }
+
+      /**
+       * 选中预设：地址填 urlTemplate，并**选中其中的 <...> 占位符**（用户直接打 IP 就覆盖，不用手删）。
+       * 名称只在用户没自己改过时才跟着换（编辑既有网盘时算已改过），免得冲掉「家里的 NAS」。
+       */
+      function applyPreset() {
+        const preset = settings.presets.find((item) => item.id === $('s-preset').value);
+        if (!preset) {
+          renderPresetNote('');
+          return;
+        }
+        if (preset.urlTemplate) {
+          const input = $('s-url');
+          input.value = preset.urlTemplate;
+          const range = placeholderRange(preset.urlTemplate);
+          if (range) {
+            input.focus();
+            input.setSelectionRange(range.start, range.end);
+          }
+        }
+        if (!editing.labelTouched && preset.label) $('s-label').value = preset.label;
+        renderPresetNote(preset.id);
+      }
+
+      /** 打开表单。编辑时**不回填密码**（host 根本不返回它），账号也只显示打码后的占位提示。 */
+      function openForm(remote) {
+        const isEdit = Boolean(remote && remote.id);
+        editing = { id: isEdit ? remote.id : '', labelTouched: isEdit, busy: false };
+        $('s-form-title').textContent = isEdit ? `编辑网盘：${remote.label || remote.id}` : '添加网盘';
+        $('s-form-card').hidden = false;
+        $('s-clear-wrap').hidden = !isEdit;
+        $('s-clear-cred').checked = false;
+        $('s-preset').value =
+          isEdit && settings.presets.some((preset) => preset.id === remote.preset) ? remote.preset : defaultPresetId();
+        $('s-label').value = isEdit ? remote.label || '' : '';
+        $('s-url').value = isEdit ? remote.url || '' : '';
+        $('s-uploaddir').value = isEdit ? remote.defaultUploadDir || '' : '';
+        $('s-user').value = '';
+        $('s-user').placeholder = isEdit && remote.user ? `已保存 ${remote.user}（留空表示不修改）` : '留空表示不修改';
+        $('s-password').value = '';
+        $('s-password').placeholder = isEdit && remote.hasPassword ? '已保存（留空表示不修改）' : '应用密码 / 登录密码';
+        const note = $('s-form-status');
+        note.className = 'status';
+        note.textContent = '';
+        // 编辑时地址以已保存的值为准，不拿模板去覆盖它；新建时按默认预设填模板。
+        if (isEdit) renderPresetNote($('s-preset').value);
+        else applyPreset();
+        $('s-form-card').scrollIntoView({ block: 'nearest' });
+        const url = $('s-url');
+        // applyPreset 可能已经选中了地址里的占位符，那就别把焦点抢到名称上去。
+        if (url.selectionStart === url.selectionEnd) $('s-label').focus();
+      }
+
+      function closeForm() {
+        editing = { id: '', labelTouched: false, busy: false };
+        $('s-form-card').hidden = true;
+        $('s-form-status').textContent = '';
+        $('s-form-status').className = 'status';
+        $('s-user').value = '';
+        $('s-password').value = '';
+        $('s-clear-cred').checked = false;
+      }
+
+      /* ---- ③ 偏好 + ④ 位置与状态 ---- */
+
+      function fillPrefs(data) {
+        const stored = data.prefs || {};
+        for (const [key, id] of PREF_FIELDS) $(id).value = stored[key] ?? '';
+      }
+
+      function fillPaths(data) {
+        settings = {
+          ...settings,
+          paths: data.paths || {},
+          envOverrides: Array.isArray(data.envOverrides) ? data.envOverrides : [],
+          default: data.default || '',
+        };
+        const box = $('s-paths');
+        box.textContent = '';
+        const fallback = (data.remotes || []).find((remote) => remote.id === data.default);
         for (const [key, value] of [
-          ['WebDAV 地址', config.url || '（未设置）'],
-          ['账号', config.user || '（未设置）'],
-          ['地址来源', sourceLabel[data.sources && data.sources.url] || '（未知）'],
-          ['账号来源', sourceLabel[data.sources && data.sources.user] || '（未知）'],
-          ['应用密码', stored.hasPassword ? '已保存' : '未保存'],
-          ['凭据文件', stored.credentialsFile || ''],
-          ['偏好文件', stored.settingsFile || ''],
+          ['默认网盘', fallback ? `${fallback.label || fallback.id}（${fallback.id}）` : '（未设置）'],
+          ['网盘配置文件', settings.paths.configFile || '（未知）'],
+          ['凭据文件（账号与密码）', settings.paths.credentialsFile || '（未知）'],
+          ['能力缓存文件', settings.paths.capabilitiesFile || '（未知）'],
         ]) {
           const dt = document.createElement('dt');
           dt.textContent = key;
           const dd = document.createElement('dd');
           dd.textContent = value;
-          info.append(dt, dd);
+          box.append(dt, dd);
         }
 
-        const overrides = Array.isArray(data.envOverrides) ? data.envOverrides : [];
-        const warn = $('s-warn');
-        if (overrides.length > 0) {
-          const names = { url: '地址', user: '账号', password: '密码' };
+        const warn = $('s-env-warn');
+        if (settings.envOverrides.length > 0) {
           warn.hidden = false;
           warn.textContent =
-            `注意：本机环境变量 WEBDAV_* 正在生效，已盖住本页保存的 ` +
-            overrides.map((field) => names[field] || field).join('、') +
-            '。要让本页的值生效，请先清掉对应的环境变量。';
+            `注意：本机设了 WEBDAV_* 环境变量，正在盖住这些字段：${settings.envOverrides.map(overrideText).join('、')}。` +
+            '要让页面里的值生效，请先清掉对应的环境变量（WEBDAV_URL / WEBDAV_USER / WEBDAV_PASSWORD / WEBDAV_REMOTE）。';
         } else {
           warn.hidden = true;
           warn.textContent = '';
@@ -1731,70 +2192,210 @@
 
       async function loadSettings() {
         try {
-          fillSettings(await api('config'));
+          const data = await api('config');
+          applyConfig(data); // 让标题与网盘选择跟文件浏览器保持一致
+          fillPresets(data.presets);
+          fillPrefs(data);
+          fillPaths(data);
+          renderRemotes(data);
         } catch (err) {
-          setStatus(err.message, 'err');
+          setStatus(err, 'err');
         }
       }
 
-      async function saveSettings() {
-        const patch = {
-          url: fieldValue('s-url'),
-          user: fieldValue('s-user'),
-          defaultUploadDir: fieldValue('s-uploaddir'),
-          maxListEntries: fieldValue('s-maxlist'),
-          readMaxBytes: fieldValue('s-readmax'),
-          timeoutMs: fieldValue('s-timeout'),
-        };
-        const password = fieldValue('s-password');
-        if (password) patch.password = password;
-        setStatus('保存中…');
+      /** 用已保存的凭据测连通性（host 端不落盘）；结果就地显示，不占用状态栏去打断别的操作。 */
+      async function testRemote(remote, note, extra = {}) {
+        note.className = 'check';
+        note.textContent = '测试中…';
         try {
-          fillSettings(await api('config', { method: 'POST', body: JSON.stringify(patch) }));
-          setStatus('已保存（立即生效，无需重启）', 'ok');
+          const data = await api('test', { method: 'POST', body: JSON.stringify({ ...extra, remote: remote.id }) });
+          const check = data.check || {};
+          if (check.ok) {
+            note.className = 'check ok';
+            note.textContent =
+              `连接成功：HTTP ${check.status}，根目录 ${check.rootCount} 项` +
+              (check.dav ? `，DAV: ${check.dav}` : '') +
+              (check.server ? `，服务端 ${check.server}` : '');
+          } else {
+            note.className = 'check err';
+            note.textContent = `连接失败：${[check.message, check.hint].filter(Boolean).join('\n')}`;
+          }
         } catch (err) {
-          setStatus(err.message, 'err');
+          note.className = 'check err';
+          note.textContent = `连接失败：${errText(err)}`;
         }
       }
 
-      async function testConnection() {
-        const payload = { url: fieldValue('s-url'), user: fieldValue('s-user') };
+      /** 表单里的「测试连接」：用当前输入值试一次，不落盘、也不动已保存的配置。 */
+      async function testForm() {
+        const note = $('s-form-status');
+        const show = (text, kind) => {
+          note.className = 'status' + (kind ? ' ' + kind : '');
+          note.textContent = text;
+        };
+        const url = fieldValue('s-url');
+        if (!url) {
+          show('先填 WebDAV 地址再测试。', 'err');
+          return;
+        }
+        if (/[<>]/.test(url)) {
+          show('地址里的 <...> 占位符还没替换：请填成真实地址，例如 http://192.168.1.10:5005/', 'err');
+          return;
+        }
+        if (!editing.id && state.remotes.length === 0) {
+          // host 的 /api/test 需要一个已存在的网盘兜底，所以第一个网盘只能先保存再测。
+          show('第一个网盘要先「保存」才能测试：host 端的测试接口需要一个已保存的网盘来兜底。', 'err');
+          return;
+        }
+        const payload = { url };
+        if (editing.id) payload.remote = editing.id;
+        const user = fieldValue('s-user');
         const password = fieldValue('s-password');
+        if (user) payload.user = user;
         if (password) payload.password = password;
-        setStatus('测试中…');
-        $('s-test').disabled = true;
+        show('测试中…');
         try {
           const data = await api('test', { method: 'POST', body: JSON.stringify(payload) });
           const check = data.check || {};
-          if (check.ok) {
-            setConn('ok', `已连接 · 根目录 ${check.rootCount} 项`);
-            $('who').textContent = check.user || '';
-            setStatus(`连接成功：${check.url}（HTTP ${check.status}，根目录 ${check.rootCount} 项，账号 ${check.user}）`, 'ok');
-          } else {
-            setConn('bad', '未连接');
-            setStatus(`连接失败：${check.message || check.error}`, 'err');
-          }
+          if (check.ok) show(`连接成功：HTTP ${check.status}，根目录 ${check.rootCount} 项（未保存任何改动）`, 'ok');
+          else show(`连接失败：${[check.message, check.hint].filter(Boolean).join('\n')}`, 'err');
         } catch (err) {
-          setConn('bad', '未连接');
-          setStatus(err.message, 'err');
+          show([err.message, err.hint].filter(Boolean).join('\n'), 'err');
+        }
+      }
+
+      async function saveForm() {
+        if (editing.busy) return;
+        const remote = {
+          preset: $('s-preset').value,
+          url: fieldValue('s-url'),
+          defaultUploadDir: fieldValue('s-uploaddir'),
+        };
+        const label = fieldValue('s-label');
+        if (label) remote.label = label;
+        if (editing.id) remote.id = editing.id;
+
+        // user / password：不传 = 不改，传 '' = 清除。编辑时输入框本来就是空的（密码不回显），
+        // 所以只有用户真的输入了才发出去——否则会用打码后的账号覆盖真账号。
+        if (editing.id && $('s-clear-cred').checked) {
+          remote.user = '';
+          remote.password = '';
+        } else {
+          const user = fieldValue('s-user');
+          const password = fieldValue('s-password');
+          if (user) remote.user = user;
+          if (password) remote.password = password;
+        }
+
+        const before = new Set(state.remotes.map((item) => item.id));
+        editing.busy = true;
+        $('s-save').disabled = true;
+        setStatus('保存中…');
+        try {
+          const data = await api('config', { method: 'POST', body: JSON.stringify({ remote }) });
+          const created = data.remotes.find((item) => !before.has(item.id)) || null;
+          const saved = (editing.id && data.remotes.find((item) => item.id === editing.id)) || created;
+          // 新加的网盘直接设成当前：省得用户再去列表里找一遍。id 无效时 applyConfig 会回落。
+          if (created) state.remote = created.id;
+          applyConfig(data);
+          fillPrefs(data);
+          fillPaths(data);
+          renderRemotes(data);
+          closeForm();
+          setStatus(`已保存网盘「${(saved && (saved.label || saved.id)) || label || remote.url}」（立即生效，无需重启）`, 'ok');
+        } catch (err) {
+          setStatus(err, 'err');
         } finally {
-          $('s-test').disabled = false;
+          editing.busy = false;
+          $('s-save').disabled = false;
+        }
+      }
+
+      async function savePrefsForm() {
+        const patch = {};
+        for (const [key, id, label] of PREF_FIELDS) {
+          const raw = $(id).value.trim();
+          if (raw === '') {
+            patch[key] = ''; // 空 = 交回默认值（host 会删掉这个键）
+            continue;
+          }
+          const n = Number(raw);
+          if (!Number.isFinite(n) || n <= 0) {
+            setStatus(`${label}需要是正整数（现在填的是「${raw}」）`, 'err');
+            return;
+          }
+          patch[key] = Math.floor(n);
+        }
+        setStatus('保存偏好中…');
+        try {
+          const data = await api('config', { method: 'POST', body: JSON.stringify({ prefs: patch }) });
+          applyConfig(data);
+          fillPrefs(data);
+          setStatus('偏好已保存（立即生效，无需重启）', 'ok');
+        } catch (err) {
+          setStatus(err, 'err');
+        }
+      }
+
+      async function setDefault(remote) {
+        try {
+          const data = await api('config', { method: 'POST', body: JSON.stringify({ select: remote.id }) });
+          applyConfig(data);
+          fillPaths(data);
+          renderRemotes(data);
+          setStatus(`已把「${remote.label || remote.id}」设为默认网盘`, 'ok');
+        } catch (err) {
+          setStatus(err, 'err');
+        }
+      }
+
+      async function removeRemote(remote) {
+        const name = remote.label || remote.id;
+        const values = await askDialog(`删除网盘「${name}」？`, [
+          {
+            note:
+              '会从本机配置里移除这个网盘，并删除它保存的账号与密码（不可撤销）。' +
+              '远端网盘里的文件不受影响。',
+          },
+          { label: '输入 DELETE 确认', value: '', placeholder: 'DELETE' },
+        ]);
+        if (!values || values[0] !== 'DELETE') return;
+        try {
+          const data = await api('config', { method: 'POST', body: JSON.stringify({ remove: remote.id }) });
+          delete prefs.dirs[remote.id]; // 目录记忆跟着网盘一起删，免得越攒越多
+          if (editing.id === remote.id) closeForm();
+          applyConfig(data);
+          fillPrefs(data);
+          fillPaths(data);
+          renderRemotes(data);
+          setStatus(`已删除网盘「${name}」`, 'ok');
+        } catch (err) {
+          setStatus(err, 'err');
         }
       }
 
       function bootSettings() {
-        $('s-save').onclick = saveSettings;
-        $('s-test').onclick = testConnection;
-        $('s-reload').onclick = loadSettings;
-        loadSettings().then(testConnection);
+        $('s-add').onclick = () => openForm(null);
+        $('s-save').onclick = saveForm;
+        $('s-cancel').onclick = closeForm;
+        $('s-test').onclick = testForm;
+        $('s-reload').onclick = () => loadSettings();
+        $('s-prefs-save').onclick = savePrefsForm;
+        $('s-preset').addEventListener('change', applyPreset);
+        $('s-label').addEventListener('input', () => {
+          editing.labelTouched = true;
+        });
+        loadSettings();
       }
+
+      /* 偏好必须先读：applyConfig() 会回写它，没读就写会把老用户记住的目录与筛选清空。 */
+      prefs = loadPrefs();
 
       if (VIEW === 'settings') {
         $('files-view').hidden = true;
         $('files-tools').style.display = 'none';
         $('settings-view').hidden = false;
         $('settings-tools').style.display = 'flex';
-        document.title = '123云盘 · 设置';
         bootSettings();
       } else {
         bootFiles();

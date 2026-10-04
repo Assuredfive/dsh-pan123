@@ -1,16 +1,29 @@
 {
-  "name": "dsh-pan123",
-  "version": "0.3.0",
-  "description": "123云盘(123pan) WebDAV for DeepSeek Harness: agent tools (pan123_*), a file browser panel and a settings page. · 123云盘 WebDAV 插件：给 Agent 提供 pan123_* 工具，并在 DSH 界面里提供网盘文件浏览器与设置页。",
+  "name": "dsh-webdav",
+  "version": "0.4.0",
+  "description": "Universal WebDAV drives for DeepSeek Harness: agent tools (webdav_*), a multi-remote file browser panel and a settings page. Works with 123pan, Jianguoyun, Nextcloud, Synology, fnOS, ZSpace, Alist, Seafile and any RFC 4918 server. · 通用 WebDAV 网盘插件：给 Agent 提供 webdav_* 工具，并在 DSH 界面里提供多网盘文件浏览器与设置页。",
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
+    "webdav",
+    "webdav-client",
+    "nas",
     "123pan",
     "123云盘",
-    "123网盘",
-    "webdav",
-    "pan123"
+    "jianguoyun",
+    "坚果云",
+    "nextcloud",
+    "owncloud",
+    "synology",
+    "群晖",
+    "fnos",
+    "飞牛",
+    "zspace",
+    "极空间",
+    "alist",
+    "openlist",
+    "seafile"
   ],
   "license": "MIT",
   "author": "Assuredfive",
@@ -33,11 +46,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Assuredfive/dsh-pan123.git"
+    "url": "git+https://github.com/Assuredfive/dsh-webdav.git"
   },
-  "homepage": "https://github.com/Assuredfive/dsh-pan123#readme",
+  "homepage": "https://github.com/Assuredfive/dsh-webdav#readme",
   "bugs": {
-    "url": "https://github.com/Assuredfive/dsh-pan123/issues"
+    "url": "https://github.com/Assuredfive/dsh-webdav/issues"
   },
   "dsh": {
     "bundle": {
