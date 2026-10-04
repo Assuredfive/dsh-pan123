@@ -1937,6 +1937,15 @@
 
       /* ============================== 设置页 ============================== */
       const fieldValue = (id) => $(id).value.trim();
+      /**
+       * 密码**不做 trim**：应用密码是外部生成的，首尾空格在语法上就是密码的一部分，
+       * 裁掉会让「粘贴时多带了一个空格」变成「密码错误」，而且用户完全看不出原因。
+       * 只有「整串都是空白」才当作没填。
+       */
+      const passwordValue = (id) => {
+        const raw = $(id).value;
+        return raw.trim() === '' ? '' : raw;
+      };
 
       /** 全局偏好的输入框（键、元素 id、报错时用的中文名）。 */
       const PREF_FIELDS = [
@@ -2242,15 +2251,11 @@
           show('地址里的 <...> 占位符还没替换：请填成真实地址，例如 http://192.168.1.10:5005/', 'err');
           return;
         }
-        if (!editing.id && state.remotes.length === 0) {
-          // host 的 /api/test 需要一个已存在的网盘兜底，所以第一个网盘只能先保存再测。
-          show('第一个网盘要先「保存」才能测试：host 端的测试接口需要一个已保存的网盘来兜底。', 'err');
-          return;
-        }
+        // 第一个网盘也能先测后存：host 端在没有已保存网盘时，只要这次带齐地址/账号/密码就放行。
         const payload = { url };
         if (editing.id) payload.remote = editing.id;
         const user = fieldValue('s-user');
-        const password = fieldValue('s-password');
+        const password = passwordValue('s-password');
         if (user) payload.user = user;
         if (password) payload.password = password;
         show('测试中…');
@@ -2282,7 +2287,7 @@
           remote.password = '';
         } else {
           const user = fieldValue('s-user');
-          const password = fieldValue('s-password');
+          const password = passwordValue('s-password');
           if (user) remote.user = user;
           if (password) remote.password = password;
         }

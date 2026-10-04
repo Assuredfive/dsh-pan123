@@ -94,6 +94,20 @@ test('config.json 不存在或损坏时给空配置而不是抛错', () => {
   assert.deepEqual(readConfig(configFile).remotes, []);
 });
 
+test('writeConfig 不把清空的偏好写成空串留在文件里', () => {
+  const { configFile } = paths();
+  writeConfig(
+    { default: 'a', prefs: { timeoutMs: 30000, bigFileWarnBytes: '' }, remotes: [{ id: 'a', label: 'A', preset: 'custom', url: 'https://a/dav' }] },
+    configFile,
+  );
+  const raw = JSON.parse(readFileSync(configFile, 'utf8'));
+  assert.deepEqual(raw.prefs, { timeoutMs: 30000 }, '空值不该以 "" 形式落盘');
+  assert.equal(raw.prefs.bigFileWarnBytes, undefined);
+
+  writeConfig({ default: 'a', prefs: { timeoutMs: '' }, remotes: [{ id: 'a', label: 'A', preset: 'custom', url: 'https://a/dav' }] }, configFile);
+  assert.deepEqual(JSON.parse(readFileSync(configFile, 'utf8')).prefs, {}, '清空最后一个偏好后不该留脏键');
+});
+
 test('凭据按远程分别保存：undefined 不动、空串清除、删空即移除整条', () => {
   const { credentialsFile } = paths();
   writeCredentials('a', { user: 'u1', password: 'p1' }, credentialsFile);

@@ -201,6 +201,72 @@ test('GET /api/status 返回凭据来源与连通性', async () => {
   assert.equal(payload.credentials.remotes[0].user, '*', '一字符账号打码后仍是 *');
 });
 
+test('POST /api/test 在账号密码留空时，回落到「这次点名那个网盘」已保存的凭据', async () => {
+  // 编辑表单里密码留空 = 不修改，此时应该用 main 自己存的密码测，而不是别家的
+  const payload = await (await api('test', { method: 'POST', body: JSON.stringify({ remote: 'main', url: dav.url }) })).json();
+  assert.equal(payload.check.ok, true);
+  assert.equal(payload.check.remote, 'main');
+});
+
+test('POST /api/test 在新增网盘时不会误用别的网盘的密码', async () => {
+  // 没点名任何已存网盘 + 不给密码 → 必须明确报「需要账号和密码」，
+  // 而不是拿默认网盘的密码去测（那样会「连接成功」，用户却以为表单填对了）
+  const payload = await (await api('test', { method: 'POST', body: JSON.stringify({ url: dav.url, user: 'someone-else' }) })).json();
+  assert.equal(payload.check.ok, false);
+  assert.match(payload.check.message ?? '', /需要账号和密码/);
+});
+
+test('POST /api/test 允许「先测后存」：一个网盘都没配时也能测', async () => {
+  const freshDir = mkdtempSync(path.join(tmpdir(), 'dsh-webdav-api-fresh-test-'));
+  let freshHandler;
+  const freshRuntime = new WebdavRuntime(
+    { env: {} },
+    {
+      configFile: path.join(freshDir, 'config.json'),
+      credentialsFile: path.join(freshDir, 'credentials.json'),
+      capabilitiesFile: path.join(freshDir, 'capabilities.json'),
+      legacyEnvFile: null,
+      legacySettingsFile: null,
+    },
+  );
+  registerApi(
+    {
+      register: (route) => {
+        freshHandler = route.handler;
+        return () => {};
+      },
+    },
+    freshRuntime,
+  );
+  const freshWeb = http.createServer((req, res) => freshHandler(req, res));
+  await new Promise((resolve) => freshWeb.listen(0, '127.0.0.1', resolve));
+  const freshBase = `http://127.0.0.1:${freshWeb.address().port}`;
+  try {
+    const freshToken = extractToken(await (await fetch(`${freshBase}${ROUTE_PREFIX}`)).text());
+    const call = (body) =>
+      fetch(`${freshBase}${ROUTE_PREFIX}/api/test`, {
+        method: 'POST',
+        headers: { 'X-Webdav-Token': freshToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((res) => res.json());
+
+    // 第一个网盘：带齐凭据就能测，不需要先保存
+    const good = await call({ url: dav.url, user: 'u', password: 'p' });
+    assert.equal(good.check.ok, true, '第一个网盘必须能先测后存');
+    assert.equal(good.check.status, 207);
+
+    // 凭据不全时如实报错，别拿别的网盘兜底
+    const incomplete = await call({ url: dav.url });
+    assert.equal(incomplete.check.ok, false);
+    assert.match(incomplete.check.message ?? '', /需要账号和密码/);
+  } finally {
+    freshWeb.closeAllConnections?.();
+    freshWeb.closeIdleConnections?.();
+    await new Promise((resolve) => freshWeb.close(resolve));
+    rmSync(freshDir, { recursive: true, force: true });
+  }
+});
+
 /* -------------------------------------------------------------- 多网盘选择 */
 
 test('所有内容接口都认 remote 参数，省略时用默认网盘', async () => {
