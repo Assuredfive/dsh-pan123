@@ -217,7 +217,7 @@ WEBDAV_REMOTE=nas          # 可选：指定这些变量作用于哪个网盘（
 ## 开发
 
 ```bash
-node --test                       # 全部测试（154 个）
+node --test                       # 全部测试（不写死数量，免得文档过期）
 node --test test/interop.test.js  # 只跑「多服务端行为档位」互操作矩阵
 npm pack --dry-run                # 看发布产物
 ```
