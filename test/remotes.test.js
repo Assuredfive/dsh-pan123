@@ -108,6 +108,32 @@ test('writeConfig 不把清空的偏好写成空串留在文件里', () => {
   assert.deepEqual(JSON.parse(readFileSync(configFile, 'utf8')).prefs, {}, '清空最后一个偏好后不该留脏键');
 });
 
+test('偏好值统一成数字：老版本写下的字符串不会被照搬下去', () => {
+  const { configFile } = paths();
+  // 老版 dsh-pan123 的 settings.json 就是这么写的（数字被写成了字符串）
+  writeFileSync(configFile, JSON.stringify({ version: 1, default: 'a', prefs: { timeoutMs: '120000', readMaxBytes: '262144' }, remotes: [{ id: 'a', label: 'A', preset: 'custom', url: 'https://a/dav' }] }), 'utf8');
+  const read = readConfig(configFile);
+  assert.strictEqual(read.prefs.timeoutMs, 120000, '应该被转成数字');
+  assert.strictEqual(read.prefs.readMaxBytes, 262144);
+
+  // 转不成合法正数的值保留原样，不静默丢用户数据
+  writeFileSync(configFile, JSON.stringify({ version: 1, default: 'a', prefs: { timeoutMs: 'abc', maxListEntries: -5 }, remotes: [] }), 'utf8');
+  const weird = readConfig(configFile);
+  assert.equal(weird.prefs.timeoutMs, 'abc');
+  assert.equal(weird.prefs.maxListEntries, -5);
+
+  // 迁移同样会转：老文件里的字符串不该进新配置
+  const credsFile = path.join(path.dirname(configFile), 'credentials.json');
+  rmSync(configFile, { force: true });
+  const migrated = migrateLegacy({
+    configFile,
+    credentialsFile: credsFile,
+    legacy: { url: 'https://a/dav', user: 'u', password: 'p', source: 'legacy-file', settings: { timeoutMs: '90000', defaultUploadDir: 'dsh' } },
+  });
+  assert.strictEqual(migrated.config.prefs.timeoutMs, 90000);
+  assert.equal(migrated.config.remotes[0].defaultUploadDir, 'dsh');
+});
+
 test('凭据按远程分别保存：undefined 不动、空串清除、删空即移除整条', () => {
   const { credentialsFile } = paths();
   writeCredentials('a', { user: 'u1', password: 'p1' }, credentialsFile);
