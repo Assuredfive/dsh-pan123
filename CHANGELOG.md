@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.4.2] - 2026-10-04
+
+### Fixed
+
+- **部分更新会把网盘的「预设」静默降级成「自定义」**：`POST /webdav/api/config` 只传某一个字段
+  （例如只想改「默认上传目录」）时，`preset` 没有回落到已保存的值，于是变成了 `custom`，
+  连带丢掉该服务商的提示与排错信息。现在只有显式传了 `preset` 才会改它。
+  > 设置页表单每次都会带上 `preset`，所以从界面点不出这个问题；这是给直接调用 JSON API 的人踩的坑
+  > （README 里就教了怎么调那个接口）。实测确认：把配置里的预设改回 `123pan` 后，再只改上传目录，
+  预设保持 `123pan`。
 ## [0.4.1] - 2026-10-04
 
 0.4.0 发布后立刻补上的收尾细节（迁移实测发现）。

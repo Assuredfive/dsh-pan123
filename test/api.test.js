@@ -177,6 +177,36 @@ test('POST /api/config 能改、能设默认、能删', async () => {
   await api('config', { method: 'POST', body: JSON.stringify({ select: 'main' }) });
 });
 
+test('POST /api/config 部分更新：只改一个字段时，预设/地址/名称/凭据都必须保住', async () => {
+  // 这是实测踩到的坑：早期的 save() 里 preset 是 `findPreset(incoming.preset).id`，
+  // 于是「只想改默认上传目录」的一次保存会把 preset 静默降级成 custom，
+  // 连带丢掉该服务商的提示与排错信息（用户看到的只是「预设」变成了「自定义」）。
+  const created = await (
+    await api('config', {
+      method: 'POST',
+      body: JSON.stringify({ remote: { label: '家里的飞牛', preset: 'fnos', url: 'http://192.168.1.9:5005/', user: 'feiniu', password: 'secret' } }),
+    })
+  ).json();
+  const id = created.remotes.find((remote) => remote.label === '家里的飞牛').id;
+  assert.equal(created.remotes.find((remote) => remote.id === id).preset, 'fnos');
+
+  // 只改默认上传目录，别的什么都不传
+  const patched = await (await api('config', { method: 'POST', body: JSON.stringify({ remote: { id, defaultUploadDir: 'docs' } }) })).json();
+  const after = patched.remotes.find((remote) => remote.id === id);
+  assert.equal(after.preset, 'fnos', '部分更新不该把预设降级成 custom');
+  assert.equal(after.presetLabel, '飞牛 fnOS', '预设显示名也要还在');
+  assert.equal(after.url, 'http://192.168.1.9:5005/', '地址不该被模板覆盖');
+  assert.equal(after.label, '家里的飞牛', '名称不该被重置');
+  assert.equal(after.hasPassword, true, '凭据不该被清掉');
+  assert.equal(after.defaultUploadDir, 'docs', '要改的字段确实改了');
+
+  // 显式改预设仍然生效
+  const represetted = await (await api('config', { method: 'POST', body: JSON.stringify({ remote: { id, preset: 'synology' } }) })).json();
+  assert.equal(represetted.remotes.find((remote) => remote.id === id).preset, 'synology');
+
+  await api('config', { method: 'POST', body: JSON.stringify({ remove: id }) });
+});
+
 test('POST /api/config 保存全局偏好并立即生效', async () => {
   const saved = await (await api('config', { method: 'POST', body: JSON.stringify({ prefs: { maxListEntries: 42, timeoutMs: 30000 } }) })).json();
   assert.equal(saved.prefs.maxListEntries, 42);

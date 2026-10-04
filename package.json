@@ -1,6 +1,6 @@
 {
   "name": "dsh-webdav",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Universal WebDAV drives for DeepSeek Harness: agent tools (webdav_*), a multi-remote file browser panel and a settings page. Works with 123pan, Jianguoyun, Nextcloud, Synology, fnOS, ZSpace, Alist, Seafile and any RFC 4918 server. · 通用 WebDAV 网盘插件：给 Agent 提供 webdav_* 工具，并在 DSH 界面里提供多网盘文件浏览器与设置页。",
   "keywords": [
     "dsh",
